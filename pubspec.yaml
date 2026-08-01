@@ -129,8 +129,13 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
+  ios: true
   image_path: "assets/images/iconFG.png"
   image_path_android: "assets/images/app_icon.png"
+  # iOS icons must be opaque and square - app_icon.png is already RGB with no
+  # alpha channel, but remove_alpha_ios guards against that changing.
+  image_path_ios: "assets/images/app_icon.png"
+  remove_alpha_ios: true
   adaptive_icon_background: "assets/images/iconBG.png"
   adaptive_icon_foreground: "assets/images/iconFG.png"
   adaptive_icon_monochrome: "assets/images/iconMonochrome.png"
