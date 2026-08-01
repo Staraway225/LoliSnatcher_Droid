@@ -1,0 +1,78 @@
+name: iOS Build
+
+# Produces an UNSIGNED .ipa for personal sideloading (Sideloadly, AltStore, ...).
+# No signing secrets are needed here - the IPA is signed on your own machine with
+# your Apple ID. This is not an App Store build.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ios-build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Get version info
+        id: version_info
+        run: |
+          python -c "
+          import re
+          with open('pubspec.yaml', 'r') as f:
+              content = f.read()
+          m = re.search(r'version:\s*(\d+\.\d+\.\d+)\+(\d+)', content)
+          print('version_name=' + m.group(1), flush=True)
+          print('build_number=' + m.group(2), flush=True)
+          " >> $GITHUB_OUTPUT
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Pinned to match .fvmrc and the exact `flutter: 3.44.6` constraint in
+          # pubspec.yaml. Do not use `channel:` here - a floating channel drifts
+          # off the pin and breaks `pub get`.
+          flutter-version: '3.44.6'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate secrets config
+        run: sh gen_config.sh
+
+      - name: Build unsigned iOS app
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=LS_IS_STORE=false \
+            --dart-define-from-file=./config/secrets.json
+
+      - name: Package IPA
+        id: package
+        env:
+          VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
+          BUILD_NUMBER: ${{ steps.version_info.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_unsigned.ipa"
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+          (cd build/ipa && zip -qry "../${IPA_NAME}" Payload)
+          echo "ipa_name=${IPA_NAME}" >> $GITHUB_OUTPUT
+          ls -lh "build/${IPA_NAME}"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.ipa_name }}
+          path: build/${{ steps.package.outputs.ipa_name }}
+          archive: false

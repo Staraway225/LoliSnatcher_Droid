@@ -67,10 +67,10 @@ class _BooruPageState extends State<BooruPage> {
   void copyBooruLink(bool withSensitiveData) {
     Navigator.of(context).pop(true); // remove dialog
     final String link = selectedBooru?.toLink(withSensitiveData) ?? '';
-    if (PlatformExt.isDesktop) {
-      ClipboardUtils.copyTextToClipboard(link, subtitle: '');
-    } else if (Platform.isAndroid) {
+    if (PlatformExt.hasNativeShare) {
       ServiceHandler.loadShareTextIntent(link);
+    } else {
+      ClipboardUtils.copyTextToClipboard(link, subtitle: '');
     }
   }
 

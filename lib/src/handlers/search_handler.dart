@@ -29,7 +29,9 @@ import 'package:lolisnatcher/src/widgets/common/flash_elements.dart';
 
 Uuid uuid = const Uuid();
 
-EventChannel? volumeKeyChannel = Platform.isAndroid ? const EventChannel('com.noaisu.loliSnatcher/volume') : null;
+EventChannel? volumeKeyChannel = PlatformExt.hasVolumeKeyNav
+    ? const EventChannel('com.noaisu.loliSnatcher/volume')
+    : null;
 
 // special strings used to separate parts of tab backup string
 const String tabDivider = '|||', listDivider = '~~~';

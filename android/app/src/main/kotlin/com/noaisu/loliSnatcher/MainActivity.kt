@@ -118,6 +118,7 @@ class MainActivity: FlutterFragmentActivity() {
                         }
                     }
                     "getPicturesPath" -> result.success(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)?.absolutePath)
+                    "getDocumentsPath" -> result.success(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)?.absolutePath)
                     "getCachePath" -> result.success(applicationContext.cacheDir.absolutePath)
                     "getSdkVersion" -> result.success(Build.VERSION.SDK_INT)
                     "writeImage" -> {

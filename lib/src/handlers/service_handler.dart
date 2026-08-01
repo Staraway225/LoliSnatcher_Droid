@@ -413,23 +413,21 @@ class ServiceHandler {
 
   static void disableSleep({bool force = false}) {
     final SettingsHandler settingsHandler = SettingsHandler.instance;
-    if (Platform.isAndroid && (settingsHandler.wakeLockEnabled || force)) {
+    if (PlatformExt.isMobile && (settingsHandler.wakeLockEnabled || force)) {
       platform.invokeMethod('disableSleep');
     }
   }
 
   static void enableSleep() {
-    if (Platform.isAndroid) {
+    if (PlatformExt.isMobile) {
       platform.invokeMethod('enableSleep');
     }
   }
 
   static Future<void> emptyCache() async {
     try {
-      if (Platform.isAndroid) {
+      if (PlatformExt.isMobile) {
         await platform.invokeMethod('emptyCache');
-      } else if (Platform.isIOS) {
-        // ???
       } else if (Platform.isLinux || Platform.isWindows) {
         final String cacheD = await getCacheDir();
         final File cacheDir = File(cacheD);

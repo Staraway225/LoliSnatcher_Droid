@@ -7,6 +7,7 @@ import 'package:http_proxy/http_proxy.dart';
 import 'package:lolisnatcher/src/data/settings/proxy_type.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
+import 'package:lolisnatcher/src/utils/logger.dart';
 
 String systemProxyAddress = '';
 bool addedRootCert = false;
@@ -16,9 +17,16 @@ Future<void> initProxy() async {
   final proxyType = settingsHandler.proxyType;
 
   if (proxyType.isSystem && PlatformExt.isMobile) {
-    final HttpProxy httpProxy = await HttpProxy.createHttpProxy();
-    if (httpProxy.host?.isNotEmpty == true && httpProxy.port?.isNotEmpty == true) {
-      systemProxyAddress = '${httpProxy.host}:${httpProxy.port}';
+    // initProxy() is awaited during startup, so an unhandled throw here would
+    // block init entirely. Failing to read the system proxy is not fatal - fall
+    // through with an empty address and findProxy() resolves to DIRECT.
+    try {
+      final HttpProxy httpProxy = await HttpProxy.createHttpProxy();
+      if (httpProxy.host?.isNotEmpty == true && httpProxy.port?.isNotEmpty == true) {
+        systemProxyAddress = '${httpProxy.host}:${httpProxy.port}';
+      }
+    } catch (e, s) {
+      Logger.Inst().log(e.toString(), 'HttpOverrides', 'initProxy', LogTypes.exception, s: s);
     }
   }
 

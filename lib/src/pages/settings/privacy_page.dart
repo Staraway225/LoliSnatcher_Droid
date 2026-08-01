@@ -6,6 +6,7 @@ import 'package:lolisnatcher/src/data/settings/app_alias.dart';
 import 'package:lolisnatcher/src/handlers/local_auth_handler.dart';
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
+import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/widgets/common/cancel_button.dart';
 import 'package:lolisnatcher/src/widgets/common/flash_elements.dart';
 import 'package:lolisnatcher/src/widgets/common/settings_widgets.dart';
@@ -125,7 +126,7 @@ class _PrivacyPageState extends State<PrivacyPage> {
         body: Center(
           child: ListView(
             children: [
-              if (Platform.isAndroid)
+              if (PlatformExt.hasAppAlias)
                 SettingsDropdown<AppAlias>(
                   value: appAlias,
                   items: AppAlias.values,

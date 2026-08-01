@@ -42,6 +42,37 @@ sh ./build.sh
 Output locations:
 - APK: `build/app/outputs/flutter-apk/LoliSnatcher_[version]_[build]_[arch]_[store/github/test].apk`
 
+### iOS
+
+iOS builds require **macOS with Xcode** — Flutter can scaffold the `ios/` project on any host,
+but only Xcode can compile it. If you do not have a Mac, run the **iOS Build** workflow from the
+Actions tab instead; it builds on a GitHub-hosted macOS runner and uploads the IPA as an artifact.
+
+```bash
+# Generate the empty secrets config the build expects
+sh gen_config.sh
+
+# Build an unsigned .app
+flutter build ios --release --no-codesign \
+  --dart-define=LS_IS_STORE=false \
+  --dart-define-from-file=./config/secrets.json
+
+# Package it as an .ipa
+mkdir -p build/ipa/Payload
+cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+(cd build/ipa && zip -qry ../LoliSnatcher_unsigned.ipa Payload)
+```
+
+Output location:
+- IPA: `build/LoliSnatcher_unsigned.ipa`
+
+The IPA is **unsigned on purpose**. Sign and install it with
+[Sideloadly](https://sideloadly.io/) or [AltStore](https://altstore.io/) using your own Apple ID.
+A free Apple ID signature lasts 7 days before the app must be re-signed.
+
+CocoaPods resolves the plugin pods on the first build; the `Podfile` is generated at that point
+and is not checked in. The deployment target is iOS 13.0, set in `ios/Runner.xcodeproj`.
+
 ## Running in Debug Mode
 
 ```bash

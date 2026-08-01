@@ -497,18 +497,22 @@ class _ThemePageState extends State<ThemePage> {
                 },
                 title: context.loc.settings.theme.enableDrawerMascot,
               ),
-              SettingsButton(
-                name: context.loc.settings.theme.setCustomMascot,
-                subtitle: mascotPathOverride.isEmpty
-                    ? null
-                    : Text('${context.loc.settings.theme.currentMascotPath}: $mascotPathOverride'),
-                icon: const Icon(Icons.image_search_outlined),
-                action: () async {
-                  mascotPathOverride = await ServiceHandler.getImageSAFUri();
-                  needToWriteMascot = true;
-                  setState(() {});
-                },
-              ),
+              // Backed by the Android Storage Access Framework - on every other
+              // platform the channel call throws, is swallowed, and silently
+              // returns an empty path, so hide the button instead.
+              if (PlatformExt.hasExternalFilePicker)
+                SettingsButton(
+                  name: context.loc.settings.theme.setCustomMascot,
+                  subtitle: mascotPathOverride.isEmpty
+                      ? null
+                      : Text('${context.loc.settings.theme.currentMascotPath}: $mascotPathOverride'),
+                  icon: const Icon(Icons.image_search_outlined),
+                  action: () async {
+                    mascotPathOverride = await ServiceHandler.getImageSAFUri();
+                    needToWriteMascot = true;
+                    setState(() {});
+                  },
+                ),
               if (mascotPathOverride.isNotEmpty)
                 SettingsButton(
                   name: context.loc.settings.theme.removeCustomMascot,

@@ -820,10 +820,10 @@ class _HideableAppBarState extends State<HideableAppBar> {
   }
 
   void shareTextAction(String text) {
-    if (PlatformExt.isDesktop) {
-      ClipboardUtils.copyTextToClipboard(text);
-    } else if (Platform.isAndroid) {
+    if (PlatformExt.hasNativeShare) {
       ServiceHandler.loadShareTextIntent(text);
+    } else {
+      ClipboardUtils.copyTextToClipboard(text);
     }
   }
 
@@ -1017,7 +1017,7 @@ class _HideableAppBarState extends State<HideableAppBar> {
       // TODO delete from cache after share window closes
 
       if (path != null) {
-        if (Platform.isAndroid) {
+        if (PlatformExt.hasNativeShare) {
           // File is already in cache - share from there
           await ServiceHandler.loadShareFileIntent(
             path,
@@ -1078,7 +1078,7 @@ class _HideableAppBarState extends State<HideableAppBar> {
         );
         if (await cacheFile.exists()) {
           path = cacheFile.path;
-          if (Platform.isAndroid) {
+          if (PlatformExt.hasNativeShare) {
             await ServiceHandler.loadShareFileIntent(
               path,
               '${item.mediaType.value.isVideo ? 'video' : 'image'}/${item.fileExt!}',

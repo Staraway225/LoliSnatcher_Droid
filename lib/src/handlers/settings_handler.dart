@@ -2068,6 +2068,14 @@ class SettingsHandler {
       return;
     }
 
+    // The update manifest only describes Android releases (APK / Play Store), so
+    // there is nothing an iOS build could act on. A sideloaded IPA is re-signed
+    // and reinstalled by hand anyway, so it has no update channel at all.
+    // The settings entry point is hidden to match - see settings_page.dart.
+    if (Platform.isIOS) {
+      return;
+    }
+
     // const String fakeUpdate = '123'; // for tests // broken string
     // const Map<String, dynamic> = {}; // for tests // full json here
 

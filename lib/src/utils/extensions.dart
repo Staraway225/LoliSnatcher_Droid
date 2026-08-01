@@ -214,4 +214,21 @@ extension PlatformExt on Platform {
   static bool isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isFuchsia;
 
   static bool hasWebviewSupport = Platform.isAndroid || Platform.isIOS || Platform.isWindows || Platform.isMacOS;
+
+  /// Native share sheet: Android send intents, iOS UIActivityViewController.
+  /// Desktop falls back to copying to the clipboard.
+  static bool hasNativeShare = Platform.isAndroid || Platform.isIOS;
+
+  /// Volume buttons are intercepted natively in MainActivity.kt. iOS has no
+  /// public API for capturing them, and desktop has nothing to capture.
+  static bool hasVolumeKeyNav = Platform.isAndroid;
+
+  /// Picking a file from outside the app relies on the Android Storage Access
+  /// Framework. iOS sandboxes the app to its own Documents directory, which is
+  /// exposed through the Files app instead.
+  static bool hasExternalFilePicker = Platform.isAndroid;
+
+  /// Launcher aliases swap the app's displayed name and icon. Android-only:
+  /// iOS can change the icon via setAlternateIconName but never the name.
+  static bool hasAppAlias = Platform.isAndroid;
 }

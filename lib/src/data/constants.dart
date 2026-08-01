@@ -11,8 +11,12 @@ class Constants {
 
   static const String discordURL = 'https://discord.gg/r9E4HDx9dz';
 
-  static const String githubURL = 'https://github.com/NO-ob/LoliSnatcher_Droid';
+  /// This fork. Upstream is https://github.com/NO-ob/LoliSnatcher_Droid and is
+  /// credited on the About page.
+  static const String githubURL = 'https://github.com/Staraway225/LoliSnatcher_Droid';
 
+  /// Stays on upstream - the fork has no wiki of its own and the documentation
+  /// applies unchanged.
   static const String wikiURL = 'https://github.com/NO-ob/LoliSnatcher_Droid/wiki';
 
   static const String booruSourcesWikiURL = '$wikiURL/Booru-sources';

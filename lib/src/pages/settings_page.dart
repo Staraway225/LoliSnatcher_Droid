@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -151,13 +153,16 @@ class SettingsPage extends StatelessWidget {
                 icon: const Icon(Icons.info_outline),
                 page: () => const AboutPage(),
               ),
-              SettingsButton(
-                name: context.loc.settings.checkForUpdates.title,
-                icon: const Icon(Icons.update),
-                action: () {
-                  settingsHandler.checkUpdate(withMessage: true);
-                },
-              ),
+              // No update channel exists for a sideloaded iOS build - the
+              // manifest only lists Android releases. See checkUpdate().
+              if (!Platform.isIOS)
+                SettingsButton(
+                  name: context.loc.settings.checkForUpdates.title,
+                  icon: const Icon(Icons.update),
+                  action: () {
+                    settingsHandler.checkUpdate(withMessage: true);
+                  },
+                ),
               if (Logger.viewController != null)
                 SettingsButton(
                   name: context.loc.settings.logs.title,

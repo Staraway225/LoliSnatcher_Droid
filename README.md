@@ -3,12 +3,22 @@
   <h1>LoliSnatcher</h1>
   <p><em>Client for booru imageboards. View images and videos, do batch downloads from many booru sites with extensive customization</em></p>
 
-  [![GitHub Release](https://img.shields.io/github/v/release/NO-ob/LoliSnatcher_Droid)](https://github.com/NO-ob/LoliSnatcher_Droid/releases)
-  [![GitHub Downloads](https://img.shields.io/github/downloads/NO-ob/LoliSnatcher_Droid/total)](https://github.com/NO-ob/LoliSnatcher_Droid/releases)
-  [![Google Play](https://img.shields.io/badge/Google%20Play-Download-green?logo=google-play)](https://play.google.com/store/apps/details?id=com.noaisu.play.losn)
+  [![Upstream](https://img.shields.io/badge/upstream-NO--ob%2FLoliSnatcher__Droid-blue?logo=github)](https://github.com/NO-ob/LoliSnatcher_Droid)
   [![Discord](https://img.shields.io/badge/Discord-Join-blue?logo=discord&logoColor=white)](https://discord.gg/yD47ANdEXW)
-  [![License](https://img.shields.io/github/license/NO-ob/LoliSnatcher_Droid)](https://www.gnu.org/licenses/agpl-3.0.html)
+  [![License](https://img.shields.io/github/license/Staraway225/LoliSnatcher_Droid)](https://www.gnu.org/licenses/agpl-3.0.html)
 </div>
+
+> ### Fork notice
+>
+> This is a **modified fork** of [NO-ob/LoliSnatcher_Droid](https://github.com/NO-ob/LoliSnatcher_Droid),
+> modified by [Staraway225](https://github.com/Staraway225) beginning **2 August 2026**.
+>
+> The modification is **iOS support** — see [Changes in this fork](#changes-in-this-fork) for the
+> full list. Everything else is the work of the upstream authors, and this fork remains licensed
+> under the **AGPL-3.0**, the same as upstream.
+>
+> This fork publishes no releases. For released builds of the original app, see
+> [upstream](https://github.com/NO-ob/LoliSnatcher_Droid/releases).
 
 ## Screenshots
 
@@ -83,9 +93,50 @@
 
 </details>
 
+## Changes in this fork
+
+The sole purpose of this fork is to add an **iOS target**, which upstream does not ship. Upstream
+builds for Android, Linux and Windows; the `ios/` directory has never existed there.
+
+- **iOS platform support** — an `ios/` Xcode project, and `Info.plist` configured to expose the
+  app's Documents directory through the iOS Files app. That is how downloads are reached on iOS:
+  Android's Storage Access Framework has no iOS counterpart, so instead of porting it, snatched
+  files land in the app sandbox where the Files app can see them.
+- **Swift service shim** (`ios/Runner/AppDelegate.swift`) — implements the portable subset of the
+  `com.noaisu.loliSnatcher/services` method channel that `MainActivity.kt` provides on Android
+  (paths, cache clearing, wakelock, share sheet). Everything else returns `notImplemented`, which
+  the Dart layer already tolerates.
+- **Capability flags** (`PlatformExt` in `lib/src/utils/extensions.dart`) — settings that cannot
+  work on a given platform are now hidden rather than shown and silently failing.
+- **iOS CI workflow** (`.github/workflows/ios-build.yml`) — builds an unsigned IPA on a macOS
+  runner for sideloading.
+- Two upstream bugs fixed along the way: an unguarded system-proxy lookup that could block
+  startup, and a `getDocumentsPath` channel call that was never implemented on the Android side.
+
+**Not supported on iOS:** volume-key page navigation, app restart, the disguised app-name
+launcher aliases, a custom save directory, and Material You dynamic colour. Each relies on an
+Android API with no iOS equivalent.
+
 ## Install
 
+### iOS
+
+This fork does not publish releases, and the app cannot be distributed through the App Store.
+Build it yourself and sideload:
+
+1. Run the **iOS Build** workflow from the Actions tab (or `flutter build ios --release
+   --no-codesign` on a Mac) and download the unsigned `.ipa` artifact.
+2. Sign and install it with [Sideloadly](https://sideloadly.io/) or
+   [AltStore](https://altstore.io/) using your own Apple ID.
+
+With a free Apple ID the signature expires after **7 days** and the app must be re-signed; a paid
+Apple Developer account extends this to a year. Reinstalling over the top preserves app data.
+
+See [BUILDING.md](.github/BUILDING.md) for details.
+
 ### Android
+
+Android builds come from upstream — this fork does not publish its own:
 
 [<img src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="90">](https://play.google.com/store/apps/details?id=com.noaisu.play.losn)
 [<img src="https://raw.githubusercontent.com/Kunzisoft/Github-badge/refs/heads/main/get-it-on-github.png" alt="Get it on Github" height="90">](https://github.com/NO-ob/LoliSnatcher_Droid/releases)
@@ -115,17 +166,25 @@ We are working on translating the app to other languages using [POEditor](https:
 
 ## Links
 
-- [Discord Server](https://discord.gg/yD47ANdEXW) - Community and support
+- [Discord Server](https://discord.gg/yD47ANdEXW) - Community and support (upstream)
 - [Privacy Policy](privacypolicy.md)
-- [Report Issues](https://github.com/NO-ob/LoliSnatcher_Droid/issues)
+- [Report Issues with this fork](https://github.com/Staraway225/LoliSnatcher_Droid/issues) - iOS-specific problems
+- [Report Issues upstream](https://github.com/NO-ob/LoliSnatcher_Droid/issues) - anything not iOS-specific
 
 ## Credits
 
+- **LoliSnatcher** - originally created and maintained by [NO-ob](https://github.com/NO-ob) and
+  [NANI-SORE](https://github.com/NANI-SORE). This fork adds iOS support on top of their work.
 - **App Icon** - [Showers-U](https://www.pixiv.net/en/users/28366691) on Pixiv
 - Built with [Flutter](https://flutter.dev/)
 
 ## License
 
 This project is licensed under the **GNU Affero General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+
+This fork is a modified version of the original and is distributed under the same licence, as
+AGPL-3.0 §5 requires. The modifications are described under
+[Changes in this fork](#changes-in-this-fork); the original is at
+[NO-ob/LoliSnatcher_Droid](https://github.com/NO-ob/LoliSnatcher_Droid).
 
 [![AGPL-3.0](https://www.gnu.org/graphics/agplv3-with-text-162x68.png)](https://www.gnu.org/licenses/agpl-3.0.html)
