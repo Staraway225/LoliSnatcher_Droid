@@ -45,8 +45,12 @@ Output locations:
 ### iOS
 
 iOS builds require **macOS with Xcode** — Flutter can scaffold the `ios/` project on any host,
-but only Xcode can compile it. If you do not have a Mac, run the **iOS Build** workflow from the
-Actions tab instead; it builds on a GitHub-hosted macOS runner and uploads the IPA as an artifact.
+but only Xcode can compile it.
+
+If you do not have a Mac, fork the repository and run the **iOS Build** workflow from the Actions
+tab of your fork; it builds on a GitHub-hosted macOS runner and uploads an unsigned IPA as an
+artifact. It has to be your own fork — triggering a `workflow_dispatch` workflow requires write
+access to the repository. macOS runners are free for public repositories.
 
 ```bash
 # Generate the empty secrets config the build expects

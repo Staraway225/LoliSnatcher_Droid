@@ -121,18 +121,26 @@ Android API with no iOS equivalent.
 
 ### iOS
 
-This fork does not publish releases, and the app cannot be distributed through the App Store.
-Build it yourself and sideload:
+There is no App Store build and there never will be — the app cannot meet Apple's review
+guidelines. iOS builds are **unsigned IPAs that you sign yourself** with your own Apple ID.
 
-1. Run the **iOS Build** workflow from the Actions tab (or `flutter build ios --release
-   --no-codesign` on a Mac) and download the unsigned `.ipa` artifact.
-2. Sign and install it with [Sideloadly](https://sideloadly.io/) or
-   [AltStore](https://altstore.io/) using your own Apple ID.
+**Option 1 — grab a prebuilt IPA.** The [iOS Build workflow runs](../../actions/workflows/ios-build.yml)
+attach an unsigned `.ipa` to each run. Open the most recent successful run and download the
+artifact.
 
-With a free Apple ID the signature expires after **7 days** and the app must be re-signed; a paid
-Apple Developer account extends this to a year. Reinstalling over the top preserves app data.
+> Two caveats: GitHub requires you to be **signed in** to download workflow artifacts, even on a
+> public repository, and artifacts are **deleted after 90 days**. If there is no recent run, use
+> option 2.
 
-See [BUILDING.md](.github/BUILDING.md) for details.
+**Option 2 — build it yourself.** Fork this repository, then run the **iOS Build** workflow from
+the Actions tab of *your* fork. Triggering a workflow requires write access, so it has to be your
+own fork — you cannot run it here. No Mac is needed; the workflow builds on a GitHub-hosted macOS
+runner. If you do have a Mac, see [BUILDING.md](.github/BUILDING.md) to build locally.
+
+**Then, either way:** sign and install the IPA with [Sideloadly](https://sideloadly.io/) or
+[AltStore](https://altstore.io/) using your own Apple ID. With a free Apple ID the signature
+expires after **7 days** and the app must be re-signed; a paid Apple Developer account extends
+this to a year. Reinstalling over the top preserves app data.
 
 ### Android
 
