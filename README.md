@@ -102,14 +102,19 @@ builds for Android, Linux and Windows; the `ios/` directory has never existed th
   app's Documents directory through the iOS Files app. That is how downloads are reached on iOS:
   Android's Storage Access Framework has no iOS counterpart, so instead of porting it, snatched
   files land in the app sandbox where the Files app can see them.
+- **Saved media is added to the Photos library**, mirroring the Android build, where the media
+  scanner makes downloads show up in the gallery. The file itself stays in the app sandbox and the
+  copy in Photos is additional. Requests add-only photo access, nothing more.
+  `.webm` videos are the exception — Photos cannot import them, so those remain in Files only.
 - **Swift service shim** (`ios/Runner/AppDelegate.swift`) — implements the portable subset of the
   `com.noaisu.loliSnatcher/services` method channel that `MainActivity.kt` provides on Android
-  (paths, cache clearing, wakelock, share sheet). Everything else returns `notImplemented`, which
-  the Dart layer already tolerates.
+  (paths, cache clearing, wakelock, share sheet, saving to Photos). Everything else returns
+  `notImplemented`, which the Dart layer already tolerates.
 - **Capability flags** (`PlatformExt` in `lib/src/utils/extensions.dart`) — settings that cannot
   work on a given platform are now hidden rather than shown and silently failing.
 - **iOS CI workflow** (`.github/workflows/ios-build.yml`) — builds an unsigned IPA on a macOS
-  runner for sideloading.
+  runner for sideloading, ad-hoc signs every binary so sideloading tools can re-sign it, and
+  fails the build if any Mach-O is left without a signature.
 - Two upstream bugs fixed along the way: an unguarded system-proxy lookup that could block
   startup, and a `getDocumentsPath` channel call that was never implemented on the Android side.
 
@@ -137,10 +142,13 @@ the Actions tab of *your* fork. Triggering a workflow requires write access, so 
 own fork — you cannot run it here. No Mac is needed; the workflow builds on a GitHub-hosted macOS
 runner. If you do have a Mac, see [BUILDING.md](.github/BUILDING.md) to build locally.
 
-**Then, either way:** sign and install the IPA with [Sideloadly](https://sideloadly.io/) or
-[AltStore](https://altstore.io/) using your own Apple ID. With a free Apple ID the signature
-expires after **7 days** and the app must be re-signed; a paid Apple Developer account extends
-this to a year. Reinstalling over the top preserves app data.
+**Then, either way:** sign and install the IPA with [SideStore](https://sidestore.io/),
+[AltStore](https://altstore.io/) or [Sideloadly](https://sideloadly.io/) using your own Apple ID.
+SideStore is what this has actually been tested with; Sideloadly refused to talk to the test
+device, so try another tool before assuming a build is broken.
+
+With a free Apple ID the signature expires after **7 days** and the app must be re-signed; a paid
+Apple Developer account extends this to a year. Reinstalling over the top preserves app data.
 
 ### Android
 
