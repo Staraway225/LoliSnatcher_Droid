@@ -61,11 +61,28 @@ flutter build ios --release --no-codesign \
   --dart-define=LS_IS_STORE=false \
   --dart-define-from-file=./config/secrets.json
 
+# Ad-hoc sign - see the note below, this step is not optional
+APP=build/ios/iphoneos/Runner.app
+find "$APP/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+  | while IFS= read -r -d '' f; do codesign --force --sign - "$f"; done
+find "$APP" -maxdepth 1 -name '*.bundle' -print0 \
+  | while IFS= read -r -d '' b; do codesign --force --sign - "$b"; done
+codesign --force --sign - "$APP"
+
 # Package it as an .ipa
 mkdir -p build/ipa/Payload
-cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+ditto "$APP" build/ipa/Payload/Runner.app
 (cd build/ipa && zip -qry ../LoliSnatcher_unsigned.ipa Payload)
 ```
+
+> **Why the ad-hoc signing step matters.** `--no-codesign` sets
+> `CODE_SIGNING_ALLOWED=NO`, which suppresses even the ad-hoc signature the linker
+> normally applies to arm64 binaries, leaving most Mach-Os with no
+> `LC_CODE_SIGNATURE` load command at all. Sideloading tools can replace an
+> existing signature but fail when they have to insert the load command and grow
+> `__LINKEDIT` from scratch — SideStore reports this as
+> `ldid.cpp(1461): _assert(): end >= size - 0x10`. Signing with `-` needs no
+> certificate and creates the slot the real signature later replaces.
 
 Output location:
 - IPA: `build/LoliSnatcher_unsigned.ipa`

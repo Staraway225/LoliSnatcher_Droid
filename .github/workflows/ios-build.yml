@@ -56,6 +56,79 @@ jobs:
             --dart-define=LS_IS_STORE=false \
             --dart-define-from-file=./config/secrets.json
 
+      # `--no-codesign` sets CODE_SIGNING_ALLOWED=NO, which suppresses even the
+      # ad-hoc signature the linker normally applies to arm64 binaries. The result
+      # is Mach-Os with no LC_CODE_SIGNATURE load command at all.
+      #
+      # Sideloading tools (SideStore/AltStore, via ldid) can replace an existing
+      # signature easily, but inserting the load command and growing __LINKEDIT
+      # from scratch is a different code path that fails - typically with
+      # `ldid.cpp(1461): _assert(): end >= size - 0x10`.
+      #
+      # An ad-hoc signature ("-") requires no certificate or provisioning profile
+      # and creates a well-formed slot for the real signature to replace later.
+      # Nested code must be signed before the bundle that contains it.
+      - name: Ad-hoc sign for sideloading
+        run: |
+          set -euo pipefail
+          APP="build/ios/iphoneos/Runner.app"
+
+          find "$APP/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+            | while IFS= read -r -d '' f; do codesign --force --sign - "$f"; done
+
+          find "$APP" -maxdepth 1 -name '*.bundle' -print0 \
+            | while IFS= read -r -d '' b; do codesign --force --sign - "$b"; done
+
+          codesign --force --sign - "$APP"
+          codesign --verify --verbose=2 "$APP"
+
+      - name: Verify every Mach-O carries a signature
+        run: |
+          python3 - <<'PY'
+          import struct, os, sys
+          MH64, FAT, FATC = 0xfeedfacf, 0xcafebabe, 0xbebafeca
+          LC_CODE_SIGNATURE = 0x1d
+
+          def signed(buf, off):
+              ncmds, = struct.unpack_from('<I', buf, off + 16)
+              p = off + 32
+              for _ in range(ncmds):
+                  cmd, size = struct.unpack_from('<II', buf, p)
+                  if cmd == LC_CODE_SIGNATURE:
+                      return True
+                  p += size
+              return False
+
+          missing = []
+          for dirpath, _, names in os.walk('build/ios/iphoneos/Runner.app'):
+              for name in names:
+                  path = os.path.join(dirpath, name)
+                  try:
+                      with open(path, 'rb') as fh:
+                          buf = fh.read()
+                      if len(buf) < 4:
+                          continue
+                      magic, = struct.unpack_from('<I', buf, 0)
+                  except OSError:
+                      continue
+                  if magic == MH64:
+                      if not signed(buf, 0):
+                          missing.append(path)
+                  elif magic in (FAT, FATC):
+                      count, = struct.unpack_from('>I', buf, 4)
+                      for i in range(count):
+                          off, = struct.unpack_from('>I', buf, 8 + i * 20 + 8)
+                          if not signed(buf, off):
+                              missing.append(f'{path}[slice {i}]')
+
+          if missing:
+              print('Unsigned Mach-O images remain - sideloading will fail:')
+              for m in missing:
+                  print(' ', m)
+              sys.exit(1)
+          print('All Mach-O images carry a code signature.')
+          PY
+
       - name: Package IPA
         id: package
         env:
@@ -65,7 +138,9 @@ jobs:
           set -euo pipefail
           IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_unsigned.ipa"
           mkdir -p build/ipa/Payload
-          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+          # ditto rather than cp -R: preserves extended attributes and symlinks,
+          # which cp can drop and which signature validation depends on.
+          ditto build/ios/iphoneos/Runner.app build/ipa/Payload/Runner.app
           (cd build/ipa && zip -qry "../${IPA_NAME}" Payload)
           echo "ipa_name=${IPA_NAME}" >> $GITHUB_OUTPUT
           ls -lh "build/${IPA_NAME}"
