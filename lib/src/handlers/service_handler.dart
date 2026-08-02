@@ -36,6 +36,25 @@ class ServiceHandler {
     }
   }
 
+  /// Copies an already-written file into the iOS Photos library.
+  ///
+  /// This is the iOS counterpart to [callMediaScanner], but the mechanism
+  /// differs: Android indexes the file where it sits, while on iOS the Photos
+  /// library is a separate store, so the file is duplicated into it. The
+  /// original stays in the app's Documents directory, reachable via the Files
+  /// app.
+  static Future<void> saveToPhotos(String path, {bool isVideo = false}) async {
+    if (!Platform.isIOS) {
+      return;
+    }
+
+    try {
+      await platform.invokeMethod('saveToPhotos', {'path': path, 'isVideo': isVideo});
+    } catch (e, s) {
+      log(e, s: s);
+    }
+  }
+
   static Future<void> restartApp({String? alias}) async {
     try {
       final result = await platform.invokeMethod('restartApp', {'alias': alias});

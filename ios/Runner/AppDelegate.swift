@@ -1,4 +1,5 @@
 import Flutter
+import Photos
 import UIKit
 
 @main
@@ -91,11 +92,24 @@ enum ServiceHandler {
       }
       share(items: items, result: result)
 
-    // Android's MediaScanner has no iOS analogue. Files land in the app's
-    // Documents directory and are surfaced through the Files app instead
-    // (UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace in Info.plist).
+    // Android's MediaScanner indexes a file in place. iOS has no such concept -
+    // the Photos library is a separate store - so this is a no-op and
+    // `saveToPhotos` handles gallery visibility instead.
     case "scanMedia":
       result(nil)
+
+    // Copies an already-written file into the Photos library. The original stays
+    // in the app's Documents directory, which the Files app exposes.
+    case "saveToPhotos":
+      guard let path = args["path"] as? String else {
+        result(argumentError("path"))
+        return
+      }
+      saveToPhotos(
+        path: path,
+        isVideo: args["isVideo"] as? Bool ?? false,
+        result: result
+      )
 
     // Deliberately 0. Callers gate Android-version-specific behaviour on this,
     // and 0 keeps every SDK-gated branch (notably the SAF paths, which require
@@ -112,6 +126,77 @@ enum ServiceHandler {
 
   private static func directory(_ target: FileManager.SearchPathDirectory) -> String {
     return NSSearchPathForDirectoriesInDomains(target, .userDomainMask, true).first ?? ""
+  }
+
+  private static func saveToPhotos(
+    path: String,
+    isVideo: Bool,
+    result: @escaping FlutterResult
+  ) {
+    guard FileManager.default.fileExists(atPath: path) else {
+      result(
+        FlutterError(code: "file_not_found", message: "No file at \(path)", details: nil)
+      )
+      return
+    }
+
+    // requestAuthorization calls back on an arbitrary queue, and FlutterResult
+    // must be invoked on the platform thread.
+    requestAddOnlyAccess { granted in
+      guard granted else {
+        DispatchQueue.main.async {
+          result(
+            FlutterError(
+              code: "permission_denied",
+              message: "Photo library access was not granted",
+              details: nil
+            )
+          )
+        }
+        return
+      }
+
+      PHPhotoLibrary.shared().performChanges(
+        {
+          let request = PHAssetCreationRequest.forAsset()
+          request.addResource(
+            with: isVideo ? .video : .photo,
+            fileURL: URL(fileURLWithPath: path),
+            options: nil
+          )
+        },
+        completionHandler: { success, error in
+          DispatchQueue.main.async {
+            if success {
+              result(nil)
+            } else {
+              result(
+                FlutterError(
+                  code: "save_failed",
+                  message: error?.localizedDescription ?? "Could not add the file to Photos",
+                  details: nil
+                )
+              )
+            }
+          }
+        }
+      )
+    }
+  }
+
+  /// Add-only is the narrowest scope that still allows writing to Photos, and it
+  /// avoids prompting for read access the app never needs. It is iOS 14+, so
+  /// fall back to the all-or-nothing prompt on iOS 13.
+  private static func requestAddOnlyAccess(_ completion: @escaping (Bool) -> Void) {
+    if #available(iOS 14, *) {
+      PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+        completion(status == .authorized || status == .limited)
+      }
+    } else {
+      PHPhotoLibrary.requestAuthorization { status in
+        completion(status == .authorized)
+      }
+    }
   }
 
   private static func emptyCache() {

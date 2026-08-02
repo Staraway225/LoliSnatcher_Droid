@@ -152,6 +152,13 @@ class ImageWriter {
           } else {
             await ServiceHandler.callMediaScanner(image.path);
           }
+        } else if (Platform.isIOS) {
+          // Mirrors the media scanner call above: makes the saved file visible
+          // in the system gallery. The file itself stays in the app sandbox.
+          await ServiceHandler.saveToPhotos(
+            image.path,
+            isVideo: item.mediaType.value.isVideo,
+          );
         }
       } catch (e, s) {
         Logger.Inst().log(
