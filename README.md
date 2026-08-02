@@ -103,9 +103,11 @@ builds for Android, Linux and Windows; the `ios/` directory has never existed th
   app's Documents directory through the iOS Files app. That is how downloads are reached on iOS:
   Android's Storage Access Framework has no iOS counterpart, so instead of porting it, snatched
   files land in the app sandbox where the Files app can see them.
-- **Saved media is added to the Photos library**, mirroring the Android build, where the media
-  scanner makes downloads show up in the gallery. The file itself stays in the app sandbox and the
-  copy in Photos is additional. Requests add-only photo access, nothing more.
+- **Saved media can be added to the Photos library**, mirroring the Android build, where the media
+  scanner makes downloads show up in the gallery. iOS cannot index a file in place, so
+  *Snatching and caching → Add snatched media to Photos* offers three modes: don't add, **copy**
+  (the default — the file stays in the app folder too, using roughly twice the storage), or move
+  (Photos keeps the only copy). Only add-only photo access is requested, nothing more.
   `.webm` videos are the exception — Photos cannot import them, so those remain in Files only.
 - **Swift service shim** (`ios/Runner/AppDelegate.swift`) — implements the portable subset of the
   `com.noaisu.loliSnatcher/services` method channel that `MainActivity.kt` provides on Android
