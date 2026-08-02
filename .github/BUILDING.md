@@ -87,6 +87,10 @@ ditto "$APP" build/ipa/Payload/Runner.app
 Output location:
 - IPA: `build/LoliSnatcher_unsigned.ipa`
 
+The CI workflow names its artifact
+`LoliSnatcher_[version]_[build]_[short commit hash]_unsigned.ipa`. The build number only moves on
+an explicit version bump, so the commit hash is what tells two IPAs apart.
+
 The IPA is **unsigned on purpose**. Sign and install it with
 [Sideloadly](https://sideloadly.io/) or [AltStore](https://altstore.io/) using your own Apple ID.
 A free Apple ID signature lasts 7 days before the app must be re-signed.

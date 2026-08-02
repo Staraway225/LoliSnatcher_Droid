@@ -134,9 +134,14 @@ jobs:
         env:
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
           BUILD_NUMBER: ${{ steps.version_info.outputs.build_number }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_unsigned.ipa"
+          # The build number only changes on an explicit version bump, so several
+          # builds can share one. The short SHA identifies which commit an IPA
+          # actually came from.
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_${SHORT_SHA}_unsigned.ipa"
           mkdir -p build/ipa/Payload
           # ditto rather than cp -R: preserves extended attributes and symlinks,
           # which cp can drop and which signature validation depends on.
