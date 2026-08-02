@@ -17,7 +17,8 @@
 > full list. Everything else is the work of the upstream authors, and this fork remains licensed
 > under the **AGPL-3.0**, the same as upstream.
 >
-> This fork publishes no releases. For released builds of the original app, see
+> This fork publishes no GitHub Releases. iOS builds are available as CI artifacts — see
+> [Install](#ios). Android builds come from
 > [upstream](https://github.com/NO-ob/LoliSnatcher_Droid/releases).
 
 ## Screenshots
