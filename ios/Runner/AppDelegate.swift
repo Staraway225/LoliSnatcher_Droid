@@ -98,8 +98,9 @@ enum ServiceHandler {
     case "scanMedia":
       result(nil)
 
-    // Copies an already-written file into the Photos library. The original stays
-    // in the app's Documents directory, which the Files app exposes.
+    // Adds an already-written file to the Photos library. With `move` the
+    // original is consumed, leaving a single copy; otherwise it is duplicated
+    // and the original stays in Documents, which the Files app exposes.
     case "saveToPhotos":
       guard let path = args["path"] as? String else {
         result(argumentError("path"))
@@ -108,6 +109,7 @@ enum ServiceHandler {
       saveToPhotos(
         path: path,
         isVideo: args["isVideo"] as? Bool ?? false,
+        move: args["move"] as? Bool ?? false,
         result: result
       )
 
@@ -131,6 +133,7 @@ enum ServiceHandler {
   private static func saveToPhotos(
     path: String,
     isVideo: Bool,
+    move: Bool,
     result: @escaping FlutterResult
   ) {
     guard FileManager.default.fileExists(atPath: path) else {
@@ -158,11 +161,17 @@ enum ServiceHandler {
 
       PHPhotoLibrary.shared().performChanges(
         {
+          // shouldMoveFile hands the file to Photos instead of copying it, so
+          // the app folder is left without a copy. Photos only removes the
+          // original once the import succeeds.
+          let options = PHAssetResourceCreationOptions()
+          options.shouldMoveFile = move
+
           let request = PHAssetCreationRequest.forAsset()
           request.addResource(
             with: isVideo ? .video : .photo,
             fileURL: URL(fileURLWithPath: path),
-            options: nil
+            options: options
           )
         },
         completionHandler: { success, error in

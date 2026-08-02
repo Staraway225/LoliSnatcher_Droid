@@ -25,6 +25,7 @@ import 'package:lolisnatcher/src/data/settings/image_quality.dart';
 import 'package:lolisnatcher/src/data/settings/mpv_hardware_decoding.dart';
 import 'package:lolisnatcher/src/data/settings/mpv_video_output.dart';
 import 'package:lolisnatcher/src/data/settings/preview_display_mode.dart';
+import 'package:lolisnatcher/src/data/settings/photos_save_mode.dart';
 import 'package:lolisnatcher/src/data/settings/preview_quality.dart';
 import 'package:lolisnatcher/src/data/settings/proxy_type.dart';
 import 'package:lolisnatcher/src/data/settings/scroll_direction.dart';
@@ -105,6 +106,7 @@ class SettingsHandler {
   String defTags = 'rating:safe';
   PreviewQuality previewMode = PreviewQuality.defaultValue;
   VideoCacheMode videoCacheMode = VideoCacheMode.defaultValue;
+  PhotosSaveMode photosSaveMode = PhotosSaveMode.defaultValue;
   String prefBooru = '';
   PreviewDisplayMode previewDisplay = PreviewDisplayMode.defaultValue;
   PreviewDisplayMode previewDisplayFallback = PreviewDisplayMode.defaultValue;
@@ -322,6 +324,11 @@ class SettingsHandler {
       'type': 'videoCacheMode',
       'default': VideoCacheMode.defaultValue,
       'options': VideoCacheMode.values,
+    },
+    'photosSaveMode': {
+      'type': 'photosSaveMode',
+      'default': PhotosSaveMode.defaultValue,
+      'options': PhotosSaveMode.values,
     },
     'galleryMode': {
       'type': 'imageQuality',
@@ -1053,6 +1060,8 @@ class SettingsHandler {
         return previewMode;
       case 'videoCacheMode':
         return videoCacheMode;
+      case 'photosSaveMode':
+        return photosSaveMode;
       case 'previewDisplay':
         return previewDisplay;
       case 'previewDisplayFallback':
@@ -1268,6 +1277,9 @@ class SettingsHandler {
         break;
       case 'videoCacheMode':
         videoCacheMode = validatedValue;
+        break;
+      case 'photosSaveMode':
+        photosSaveMode = validatedValue;
         break;
       case 'previewDisplay':
         previewDisplay = validatedValue;

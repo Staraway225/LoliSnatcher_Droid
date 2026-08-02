@@ -839,6 +839,18 @@
             "setStorageDirectory": "Set storage directory",
             "currentPath(param=path)": "Current: ${path: String}",
             "resetStorageDirectory": "Reset storage directory",
+            "photosSaveMode": "Add snatched media to Photos",
+            "photosSaveModeValues": {
+                "disabled": "Don't add",
+                "copy": "Copy to Photos",
+                "move": "Move to Photos"
+            },
+            "photosSaveModeTitle": "Adding media to Photos",
+            "photosSaveModeDisabled": "- Don't add - Saved files stay in the app folder only, reachable through the Files app",
+            "photosSaveModeCopy": "- Copy to Photos - Keeps the file in the app folder as well, so it uses about twice the storage",
+            "photosSaveModeMove": "- Move to Photos - Only the Photos copy is kept, so nothing is duplicated",
+            "photosSaveModeMoveNote": "[Note]: With Move, files leave the app folder, so already-snatched detection relies on the database. Disabling the database will cause repeat downloads.",
+            "photosSaveModeWebmNote": "[Note]: Photos cannot import .webm videos - those always stay in the app folder.",
             "cachePreviews": "Cache previews",
             "cacheMedia": "Cache media",
             "videoCacheMode": "Video cache mode",

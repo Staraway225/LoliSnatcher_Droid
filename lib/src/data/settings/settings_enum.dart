@@ -5,6 +5,7 @@ import 'package:lolisnatcher/src/data/settings/hand_side.dart';
 import 'package:lolisnatcher/src/data/settings/image_quality.dart';
 import 'package:lolisnatcher/src/data/settings/mpv_hardware_decoding.dart';
 import 'package:lolisnatcher/src/data/settings/mpv_video_output.dart';
+import 'package:lolisnatcher/src/data/settings/photos_save_mode.dart';
 import 'package:lolisnatcher/src/data/settings/preview_display_mode.dart';
 import 'package:lolisnatcher/src/data/settings/preview_quality.dart';
 import 'package:lolisnatcher/src/data/settings/proxy_type.dart';
@@ -128,6 +129,10 @@ void initSettingsEnumRegistry() {
   SettingsEnumRegistry.register<VideoCacheMode>(
     typeName: 'videoCacheMode',
     fromString: VideoCacheMode.fromString,
+  );
+  SettingsEnumRegistry.register<PhotosSaveMode>(
+    typeName: 'photosSaveMode',
+    fromString: PhotosSaveMode.fromString,
   );
   SettingsEnumRegistry.register<MpvVideoOutput>(
     typeName: 'mpvVideoOutput',

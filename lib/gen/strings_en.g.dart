@@ -3720,6 +3720,41 @@ class Translations$settings$cache$en {
   String get resetStorageDirectory =>
       TranslationOverrides.string(_root.$meta, 'settings.cache.resetStorageDirectory', {}) ?? 'Reset storage directory';
 
+  /// en: 'Add snatched media to Photos'
+  String get photosSaveMode => TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveMode', {}) ?? 'Add snatched media to Photos';
+
+  late final Translations$settings$cache$photosSaveModeValues$en photosSaveModeValues = Translations$settings$cache$photosSaveModeValues$en.internal(
+    _root,
+  );
+
+  /// en: 'Adding media to Photos'
+  String get photosSaveModeTitle => TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeTitle', {}) ?? 'Adding media to Photos';
+
+  /// en: '- Don't add - Saved files stay in the app folder only, reachable through the Files app'
+  String get photosSaveModeDisabled =>
+      TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeDisabled', {}) ??
+      '- Don\'t add - Saved files stay in the app folder only, reachable through the Files app';
+
+  /// en: '- Copy to Photos - Keeps the file in the app folder as well, so it uses about twice the storage'
+  String get photosSaveModeCopy =>
+      TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeCopy', {}) ??
+      '- Copy to Photos - Keeps the file in the app folder as well, so it uses about twice the storage';
+
+  /// en: '- Move to Photos - Only the Photos copy is kept, so nothing is duplicated'
+  String get photosSaveModeMove =>
+      TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeMove', {}) ??
+      '- Move to Photos - Only the Photos copy is kept, so nothing is duplicated';
+
+  /// en: '[Note]: With Move, files leave the app folder, so already-snatched detection relies on the database. Disabling the database will cause repeat downloads.'
+  String get photosSaveModeMoveNote =>
+      TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeMoveNote', {}) ??
+      '[Note]: With Move, files leave the app folder, so already-snatched detection relies on the database. Disabling the database will cause repeat downloads.';
+
+  /// en: '[Note]: Photos cannot import .webm videos - those always stay in the app folder.'
+  String get photosSaveModeWebmNote =>
+      TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeWebmNote', {}) ??
+      '[Note]: Photos cannot import .webm videos - those always stay in the app folder.';
+
   /// en: 'Cache previews'
   String get cachePreviews => TranslationOverrides.string(_root.$meta, 'settings.cache.cachePreviews', {}) ?? 'Cache previews';
 
@@ -4935,6 +4970,24 @@ class Translations$settings$video$videoBackendModeValues$en {
 
   /// en: 'MDK'
   String get mdk => TranslationOverrides.string(_root.$meta, 'settings.video.videoBackendModeValues.mdk', {}) ?? 'MDK';
+}
+
+// Path: settings.cache.photosSaveModeValues
+class Translations$settings$cache$photosSaveModeValues$en {
+  Translations$settings$cache$photosSaveModeValues$en.internal(this._root);
+
+  final Translations _root; // ignore: unused_field
+
+  // Translations
+
+  /// en: 'Don't add'
+  String get disabled => TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.disabled', {}) ?? 'Don\'t add';
+
+  /// en: 'Copy to Photos'
+  String get copy => TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.copy', {}) ?? 'Copy to Photos';
+
+  /// en: 'Move to Photos'
+  String get move => TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.move', {}) ?? 'Move to Photos';
 }
 
 // Path: media.loading.stopReasons
@@ -6279,6 +6332,31 @@ extension on Translations {
             ({required String path}) => TranslationOverrides.string(_root.$meta, 'settings.cache.currentPath', {'path': path}) ?? 'Current: ${path}',
           'settings.cache.resetStorageDirectory' =>
             TranslationOverrides.string(_root.$meta, 'settings.cache.resetStorageDirectory', {}) ?? 'Reset storage directory',
+          'settings.cache.photosSaveMode' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveMode', {}) ?? 'Add snatched media to Photos',
+          'settings.cache.photosSaveModeValues.disabled' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.disabled', {}) ?? 'Don\'t add',
+          'settings.cache.photosSaveModeValues.copy' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.copy', {}) ?? 'Copy to Photos',
+          'settings.cache.photosSaveModeValues.move' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeValues.move', {}) ?? 'Move to Photos',
+          'settings.cache.photosSaveModeTitle' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeTitle', {}) ?? 'Adding media to Photos',
+          'settings.cache.photosSaveModeDisabled' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeDisabled', {}) ??
+                '- Don\'t add - Saved files stay in the app folder only, reachable through the Files app',
+          'settings.cache.photosSaveModeCopy' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeCopy', {}) ??
+                '- Copy to Photos - Keeps the file in the app folder as well, so it uses about twice the storage',
+          'settings.cache.photosSaveModeMove' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeMove', {}) ??
+                '- Move to Photos - Only the Photos copy is kept, so nothing is duplicated',
+          'settings.cache.photosSaveModeMoveNote' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeMoveNote', {}) ??
+                '[Note]: With Move, files leave the app folder, so already-snatched detection relies on the database. Disabling the database will cause repeat downloads.',
+          'settings.cache.photosSaveModeWebmNote' =>
+            TranslationOverrides.string(_root.$meta, 'settings.cache.photosSaveModeWebmNote', {}) ??
+                '[Note]: Photos cannot import .webm videos - those always stay in the app folder.',
           'settings.cache.cachePreviews' => TranslationOverrides.string(_root.$meta, 'settings.cache.cachePreviews', {}) ?? 'Cache previews',
           'settings.cache.cacheMedia' => TranslationOverrides.string(_root.$meta, 'settings.cache.cacheMedia', {}) ?? 'Cache media',
           'settings.cache.videoCacheMode' => TranslationOverrides.string(_root.$meta, 'settings.cache.videoCacheMode', {}) ?? 'Video cache mode',
@@ -6784,6 +6862,9 @@ extension on Translations {
           'searchBar.popular' => TranslationOverrides.string(_root.$meta, 'searchBar.popular', {}) ?? 'Popular',
           'searchBar.selectDate' => TranslationOverrides.string(_root.$meta, 'searchBar.selectDate', {}) ?? 'Select date',
           'searchBar.selectDatesRange' => TranslationOverrides.string(_root.$meta, 'searchBar.selectDatesRange', {}) ?? 'Select dates range',
+          _ => null,
+        } ??
+        switch (path) {
           'searchBar.history' => TranslationOverrides.string(_root.$meta, 'searchBar.history', {}) ?? 'History',
           'searchBar.more' => TranslationOverrides.string(_root.$meta, 'searchBar.more', {}) ?? '…',
           'mobileHome.selectBooruForWebview' =>
@@ -6796,9 +6877,6 @@ extension on Translations {
           'mobileHome.skip' => TranslationOverrides.string(_root.$meta, 'mobileHome.skip', {}) ?? 'Skip',
           'mobileHome.retryAll' =>
             ({required int count}) => TranslationOverrides.string(_root.$meta, 'mobileHome.retryAll', {'count': count}) ?? 'Retry all (${count})',
-          _ => null,
-        } ??
-        switch (path) {
           'mobileHome.existingFailedOrCancelledItems' =>
             TranslationOverrides.string(_root.$meta, 'mobileHome.existingFailedOrCancelledItems', {}) ?? 'Existing, failed or cancelled items',
           'mobileHome.clearAllRetryableItems' =>

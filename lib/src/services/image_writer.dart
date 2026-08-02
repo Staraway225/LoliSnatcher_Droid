@@ -152,12 +152,15 @@ class ImageWriter {
           } else {
             await ServiceHandler.callMediaScanner(image.path);
           }
-        } else if (Platform.isIOS) {
+        } else if (Platform.isIOS && settingsHandler.photosSaveMode.isEnabled) {
           // Mirrors the media scanner call above: makes the saved file visible
-          // in the system gallery. The file itself stays in the app sandbox.
+          // in the system gallery. Unlike Android, iOS cannot index a file in
+          // place, so it is either copied into Photos or handed over entirely -
+          // see PhotosSaveMode.
           await ServiceHandler.saveToPhotos(
             image.path,
             isVideo: item.mediaType.value.isVideo,
+            move: settingsHandler.photosSaveMode.isMove,
           );
         }
       } catch (e, s) {

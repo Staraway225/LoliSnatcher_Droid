@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:lolisnatcher/src/data/settings/image_quality.dart';
+import 'package:lolisnatcher/src/data/settings/photos_save_mode.dart';
 import 'package:lolisnatcher/src/data/settings/video_cache_mode.dart';
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
@@ -31,6 +32,7 @@ class _SaveCachePageState extends State<SaveCachePage> {
   final TextEditingController cacheSizeController = TextEditingController();
 
   late VideoCacheMode videoCacheMode;
+  late PhotosSaveMode photosSaveMode;
   late String extPathOverride;
   late ImageQuality snatchMode;
   bool jsonWrite = false,
@@ -61,6 +63,7 @@ class _SaveCachePageState extends State<SaveCachePage> {
     thumbnailCache = settingsHandler.thumbnailCache;
     mediaCache = settingsHandler.mediaCache;
     videoCacheMode = settingsHandler.videoCacheMode;
+    photosSaveMode = settingsHandler.photosSaveMode;
     extPathOverride = settingsHandler.extPathOverride;
     snatchMode = settingsHandler.snatchMode;
     jsonWrite = settingsHandler.jsonWrite;
@@ -129,6 +132,7 @@ class _SaveCachePageState extends State<SaveCachePage> {
     settingsHandler.mediaCache = mediaCache;
     settingsHandler.thumbnailCache = thumbnailCache;
     settingsHandler.videoCacheMode = videoCacheMode;
+    settingsHandler.photosSaveMode = photosSaveMode;
     settingsHandler.cacheDuration = cacheDuration;
     settingsHandler.cacheSize = int.parse(cacheSizeController.text);
     settingsHandler.extPathOverride = extPathOverride;
@@ -413,6 +417,43 @@ class _SaveCachePageState extends State<SaveCachePage> {
                   },
                 ),
               ),
+              // iOS keeps the Photos library separate from the app sandbox, so
+              // adding an asset there means a second copy of the file. Android
+              // indexes files in place and needs no such choice.
+              if (Platform.isIOS)
+                SettingsOptionsList<PhotosSaveMode>(
+                  value: photosSaveMode,
+                  items: PhotosSaveMode.values,
+                  onChanged: (PhotosSaveMode? newValue) {
+                    setState(() {
+                      photosSaveMode = newValue ?? PhotosSaveMode.defaultValue;
+                    });
+                  },
+                  title: context.loc.settings.cache.photosSaveMode,
+                  itemTitleBuilder: (e) => e?.locName ?? '',
+                  trailingIcon: IconButton(
+                    icon: const Icon(Icons.help_outline),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) {
+                          return SettingsDialog(
+                            title: Text(context.loc.settings.cache.photosSaveModeTitle),
+                            contentItems: [
+                              Text(context.loc.settings.cache.photosSaveModeDisabled),
+                              Text(context.loc.settings.cache.photosSaveModeCopy),
+                              Text(context.loc.settings.cache.photosSaveModeMove),
+                              const Text(''),
+                              Text(context.loc.settings.cache.photosSaveModeMoveNote),
+                              const Text(''),
+                              Text(context.loc.settings.cache.photosSaveModeWebmNote),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
               SettingsDropdown<Duration>(
                 value: cacheDuration,
                 items: settingsHandler.map['cacheDuration']!['options'],
