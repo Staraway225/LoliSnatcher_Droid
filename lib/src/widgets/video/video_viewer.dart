@@ -644,13 +644,13 @@ class VideoViewerState extends State<VideoViewer> {
       // Start from cache if was already cached or only caching is allowed
       videoController.value = VideoPlayerController.file(
         video!,
-        videoPlayerOptions: Platform.isAndroid ? VideoPlayerOptions(mixWithOthers: true) : null,
+        videoPlayerOptions: PlatformExt.isMobile ? VideoPlayerOptions(mixWithOthers: true) : null,
       );
     } else {
       // Otherwise load from network
       videoController.value = VideoPlayerController.networkUrl(
         Uri.parse(widget.booruItem.fileURL),
-        videoPlayerOptions: Platform.isAndroid ? VideoPlayerOptions(mixWithOthers: true) : null,
+        videoPlayerOptions: PlatformExt.isMobile ? VideoPlayerOptions(mixWithOthers: true) : null,
         httpHeaders: await Tools.getFileCustomHeaders(
           widget.booru,
           item: widget.booruItem,

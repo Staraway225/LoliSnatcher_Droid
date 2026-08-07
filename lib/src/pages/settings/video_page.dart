@@ -43,8 +43,11 @@ class _VideoSettingsPageState extends State<VideoSettingsPage> {
     }
     videoBackendMode = settingsHandler.videoBackendMode;
     altVideoPlayerHwAccel = settingsHandler.altVideoPlayerHwAccel;
-    altVideoPlayerVO = settingsHandler.altVideoPlayerVO;
-    altVideoPlayerHWDEC = settingsHandler.altVideoPlayerHWDEC;
+    // Coerce on load: a value persisted before these were platform-filtered, or
+    // synced from another device, would otherwise sit outside the dropdown's
+    // item list and throw. Popping the page then writes the corrected value back.
+    altVideoPlayerVO = settingsHandler.altVideoPlayerVO.orPlatformDefault;
+    altVideoPlayerHWDEC = settingsHandler.altVideoPlayerHWDEC.orPlatformDefault;
     videoCacheMode = settingsHandler.videoCacheMode;
   }
 
@@ -184,25 +187,28 @@ class _VideoSettingsPageState extends State<VideoSettingsPage> {
                               },
                               title: context.loc.settings.video.mpvUseHardwareAcceleration,
                             ),
-                            SettingsDropdown<MpvVideoOutput>(
-                              value: altVideoPlayerVO,
-                              items: MpvVideoOutput.values,
-                              onReset: () {
-                                setState(() {
-                                  altVideoPlayerVO = MpvVideoOutput.defaultValue;
-                                });
-                              },
-                              onChanged: (MpvVideoOutput? newValue) {
-                                setState(() {
-                                  altVideoPlayerVO = newValue ?? MpvVideoOutput.defaultValue;
-                                });
-                              },
-                              title: context.loc.settings.video.mpvVO,
-                              itemTitleBuilder: (e) => e?.locName ?? '',
-                            ),
+                            // Hidden on iOS, where libmpv is the only output the
+                            // texture path can use - a one-item dropdown is noise.
+                            if (MpvVideoOutput.allowedValues.length > 1)
+                              SettingsDropdown<MpvVideoOutput>(
+                                value: altVideoPlayerVO,
+                                items: MpvVideoOutput.allowedValues,
+                                onReset: () {
+                                  setState(() {
+                                    altVideoPlayerVO = MpvVideoOutput.defaultValue;
+                                  });
+                                },
+                                onChanged: (MpvVideoOutput? newValue) {
+                                  setState(() {
+                                    altVideoPlayerVO = newValue ?? MpvVideoOutput.defaultValue;
+                                  });
+                                },
+                                title: context.loc.settings.video.mpvVO,
+                                itemTitleBuilder: (e) => e?.locName ?? '',
+                              ),
                             SettingsDropdown<MpvHardwareDecoding>(
                               value: altVideoPlayerHWDEC,
-                              items: MpvHardwareDecoding.values,
+                              items: MpvHardwareDecoding.allowedValues,
                               onReset: () {
                                 setState(() {
                                   altVideoPlayerHWDEC = MpvHardwareDecoding.defaultValue;

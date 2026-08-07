@@ -99,8 +99,12 @@ class MediaKitVideoPlayer extends VideoPlayerPlatform {
       player,
       configuration: VideoControllerConfiguration(
         enableHardwareAcceleration: settingsHandler.altVideoPlayerHwAccel,
-        vo: settingsHandler.altVideoPlayerVO.toJson(),
-        hwdec: settingsHandler.altVideoPlayerHWDEC.toJson(),
+        // orPlatformDefault, not the raw value: a setting stored on another
+        // platform (or before these were platform-filtered) would otherwise be
+        // handed to mpv verbatim. `vo=gpu` on iOS is the case that matters - it
+        // stops any texture being produced, so video buffers but never renders.
+        vo: settingsHandler.altVideoPlayerVO.orPlatformDefault.toJson(),
+        hwdec: settingsHandler.altVideoPlayerHWDEC.orPlatformDefault.toJson(),
         // androidAttachSurfaceAfterVideoParameters: false,
       ),
     );
