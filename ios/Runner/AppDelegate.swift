@@ -145,8 +145,9 @@ enum ServiceHandler {
 
     // requestAuthorization calls back on an arbitrary queue, and FlutterResult
     // must be invoked on the platform thread.
-    requestPhotoLibraryAccess { status in
-      guard status == .authorized || status == .limited else {
+    requestPhotoLibraryAccess { access in
+      switch access {
+      case .denied:
         DispatchQueue.main.async {
           result(
             FlutterError(
@@ -156,21 +157,18 @@ enum ServiceHandler {
             )
           )
         }
-        return
-      }
 
-      // Under Limited Access the app can add assets but cannot read or create
-      // collections, so there is no album to file this into - save it plain
-      // rather than failing.
-      guard status == .authorized else {
+      // Limited Access can add assets but cannot read or create collections, so
+      // there is no album to file this into - save it plain rather than failing.
+      case .limited:
         performSave(path: path, isVideo: isVideo, move: move, album: nil, result: result)
-        return
-      }
 
-      // A nil album here is not an error: resolving it can fail (deleted mid-run,
-      // creation refused) and a missing album must never cost the user the save.
-      resolveAlbum { album in
-        performSave(path: path, isVideo: isVideo, move: move, album: album, result: result)
+      case .full:
+        // A nil album here is not an error: resolving it can fail (deleted
+        // mid-run, creation refused) and that must never cost the user the save.
+        resolveAlbum { album in
+          performSave(path: path, isVideo: isVideo, move: move, album: album, result: result)
+        }
       }
     }
   }
@@ -288,22 +286,38 @@ enum ServiceHandler {
     )
   }
 
+  /// What the granted authorization actually permits, so callers never have to
+  /// touch `PHAuthorizationStatus.limited` - that case is iOS 14+ and the
+  /// deployment target is 13.0, so referencing it outside an availability check
+  /// fails to compile.
+  private enum PhotoAccess {
+    case denied
+    /// Limited Access: assets can be added, but collections cannot be read or
+    /// created, so no album is possible.
+    case limited
+    case full
+  }
+
   /// Read/write rather than add-only: finding the app's own album is a read, and
   /// under add-only the fetch returns nothing, so every save would create another
-  /// duplicate album. It is iOS 14+, so fall back to the all-or-nothing prompt on
-  /// iOS 13.
+  /// duplicate album. Access levels are iOS 14+, so fall back to the
+  /// all-or-nothing prompt on iOS 13.
   private static func requestPhotoLibraryAccess(
-    _ completion: @escaping (PHAuthorizationStatus) -> Void
+    _ completion: @escaping (PhotoAccess) -> Void
   ) {
     if #available(iOS 14, *) {
       PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-        completion(status)
+        switch status {
+        case .authorized: completion(.full)
+        case .limited: completion(.limited)
+        default: completion(.denied)
+        }
       }
     } else {
       // Pre-iOS 14 there is no access level and no .limited - authorization is
-      // all-or-nothing, so the status maps straight through.
+      // all-or-nothing.
       PHPhotoLibrary.requestAuthorization { status in
-        completion(status)
+        completion(status == .authorized ? .full : .denied)
       }
     }
   }
