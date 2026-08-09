@@ -145,8 +145,8 @@ enum ServiceHandler {
 
     // requestAuthorization calls back on an arbitrary queue, and FlutterResult
     // must be invoked on the platform thread.
-    requestAddOnlyAccess { granted in
-      guard granted else {
+    requestPhotoLibraryAccess { status in
+      guard status == .authorized || status == .limited else {
         DispatchQueue.main.async {
           result(
             FlutterError(
@@ -159,51 +159,151 @@ enum ServiceHandler {
         return
       }
 
-      PHPhotoLibrary.shared().performChanges(
-        {
-          // shouldMoveFile hands the file to Photos instead of copying it, so
-          // the app folder is left without a copy. Photos only removes the
-          // original once the import succeeds.
-          let options = PHAssetResourceCreationOptions()
-          options.shouldMoveFile = move
+      // Under Limited Access the app can add assets but cannot read or create
+      // collections, so there is no album to file this into - save it plain
+      // rather than failing.
+      guard status == .authorized else {
+        performSave(path: path, isVideo: isVideo, move: move, album: nil, result: result)
+        return
+      }
 
-          let request = PHAssetCreationRequest.forAsset()
-          request.addResource(
-            with: isVideo ? .video : .photo,
-            fileURL: URL(fileURLWithPath: path),
-            options: options
-          )
-        },
-        completionHandler: { success, error in
-          DispatchQueue.main.async {
-            if success {
-              result(nil)
-            } else {
-              result(
-                FlutterError(
-                  code: "save_failed",
-                  message: error?.localizedDescription ?? "Could not add the file to Photos",
-                  details: nil
-                )
-              )
-            }
-          }
-        }
-      )
+      // A nil album here is not an error: resolving it can fail (deleted mid-run,
+      // creation refused) and a missing album must never cost the user the save.
+      resolveAlbum { album in
+        performSave(path: path, isVideo: isVideo, move: move, album: album, result: result)
+      }
     }
   }
 
-  /// Add-only is the narrowest scope that still allows writing to Photos, and it
-  /// avoids prompting for read access the app never needs. It is iOS 14+, so
-  /// fall back to the all-or-nothing prompt on iOS 13.
-  private static func requestAddOnlyAccess(_ completion: @escaping (Bool) -> Void) {
+  private static func performSave(
+    path: String,
+    isVideo: Bool,
+    move: Bool,
+    album: PHAssetCollection?,
+    result: @escaping FlutterResult
+  ) {
+    PHPhotoLibrary.shared().performChanges(
+      {
+        // shouldMoveFile hands the file to Photos instead of copying it, so
+        // the app folder is left without a copy. Photos only removes the
+        // original once the import succeeds.
+        let options = PHAssetResourceCreationOptions()
+        options.shouldMoveFile = move
+
+        let request = PHAssetCreationRequest.forAsset()
+        request.addResource(
+          with: isVideo ? .video : .photo,
+          fileURL: URL(fileURLWithPath: path),
+          options: options
+        )
+
+        // The asset does not exist yet, so a placeholder is the only handle to
+        // it - and it is valid solely inside this transaction. Creating the
+        // asset and filing it into the album therefore has to happen together.
+        if let album, let placeholder = request.placeholderForCreatedAsset {
+          PHAssetCollectionChangeRequest(for: album)?.addAssets([placeholder] as NSArray)
+        }
+      },
+      completionHandler: { success, error in
+        DispatchQueue.main.async {
+          if success {
+            result(nil)
+          } else {
+            result(
+              FlutterError(
+                code: "save_failed",
+                message: error?.localizedDescription ?? "Could not add the file to Photos",
+                details: nil
+              )
+            )
+          }
+        }
+      }
+    )
+  }
+
+  // MARK: - Album
+
+  /// Cached so a batch snatch resolves the album once rather than per file.
+  private static var cachedAlbumID: String?
+
+  /// Taken from the bundle so it follows the app's display name rather than
+  /// duplicating it as a literal.
+  private static var albumTitle: String {
+    let info = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+    let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+    return info ?? name ?? "LoliSnatcher"
+  }
+
+  private static func findAlbum() -> PHAssetCollection? {
+    if let id = cachedAlbumID,
+      let cached = PHAssetCollection.fetchAssetCollections(
+        withLocalIdentifiers: [id],
+        options: nil
+      ).firstObject
+    {
+      return cached
+    }
+
+    // Cache miss, or the album was deleted since - fall back to matching by title.
+    let options = PHFetchOptions()
+    options.predicate = NSPredicate(format: "localizedTitle = %@", albumTitle)
+    let found = PHAssetCollection.fetchAssetCollections(
+      with: .album,
+      subtype: .albumRegular,
+      options: options
+    ).firstObject
+
+    cachedAlbumID = found?.localIdentifier
+    return found
+  }
+
+  private static func resolveAlbum(_ completion: @escaping (PHAssetCollection?) -> Void) {
+    if let existing = findAlbum() {
+      completion(existing)
+      return
+    }
+
+    var placeholder: PHObjectPlaceholder?
+    PHPhotoLibrary.shared().performChanges(
+      {
+        let request = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(
+          withTitle: albumTitle
+        )
+        placeholder = request.placeholderForCreatedAssetCollection
+      },
+      completionHandler: { success, _ in
+        guard success, let id = placeholder?.localIdentifier else {
+          completion(nil)
+          return
+        }
+        cachedAlbumID = id
+        completion(
+          PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: [id],
+            options: nil
+          ).firstObject
+        )
+      }
+    )
+  }
+
+  /// Read/write rather than add-only: finding the app's own album is a read, and
+  /// under add-only the fetch returns nothing, so every save would create another
+  /// duplicate album. It is iOS 14+, so fall back to the all-or-nothing prompt on
+  /// iOS 13.
+  private static func requestPhotoLibraryAccess(
+    _ completion: @escaping (PHAuthorizationStatus) -> Void
+  ) {
     if #available(iOS 14, *) {
-      PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-        completion(status == .authorized || status == .limited)
+      PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+        completion(status)
       }
     } else {
+      // Pre-iOS 14 there is no access level and no .limited - authorization is
+      // all-or-nothing, so the status maps straight through.
       PHPhotoLibrary.requestAuthorization { status in
-        completion(status == .authorized)
+        completion(status)
       }
     }
   }

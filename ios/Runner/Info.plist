@@ -42,8 +42,10 @@
 	<string>Used to unlock the app when the app lock is enabled.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Used to save downloaded images and videos to your photo library.</string>
+	<!-- Full access rather than add-only: filing media into the app's own album
+	     means looking that album up first, and finding a collection is a read. -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Used to save downloaded images and videos to your photo library.</string>
+	<string>Used to save downloaded images and videos into a LoliSnatcher album in your photo library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

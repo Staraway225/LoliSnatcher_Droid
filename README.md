@@ -107,7 +107,10 @@ builds for Android, Linux and Windows; the `ios/` directory has never existed th
   scanner makes downloads show up in the gallery. iOS cannot index a file in place, so
   *Snatching and caching → Add snatched media to Photos* offers three modes: don't add, **copy**
   (the default — the file stays in the app folder too, using roughly twice the storage), or move
-  (Photos keeps the only copy). Only add-only photo access is requested, nothing more.
+  (Photos keeps the only copy). Media is filed into a **LoliSnatcher album** rather than left
+  loose in Recents; this is why the app asks for full photo access rather than add-only, since
+  finding its own album is a read. Granting Limited access instead still works — the media is
+  saved, just without an album.
   `.webm` videos are the exception — Photos cannot import them, so those remain in Files only.
 - **Swift service shim** (`ios/Runner/AppDelegate.swift`) — implements the portable subset of the
   `com.noaisu.loliSnatcher/services` method channel that `MainActivity.kt` provides on Android
