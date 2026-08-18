@@ -55,7 +55,6 @@ class LoadingProgressTracker {
   int _lastTime = 0;
   int _smoothedSpeedBytesPerSecond = 0;
 
-  Timer? _periodicRefresh;
   bool _isDisposed = false;
 
   LoadingProgressSnapshot snapshot({
@@ -115,13 +114,13 @@ class LoadingProgressTracker {
   }
 
   void dispose() {
+    _unsubscribe(this);
     _isDisposed = true;
     _total = 0;
     _received = 0;
     _startedAt = 0;
     _resetSpeedSamples();
     _unlisten();
-    _periodicRefresh?.cancel();
     Debounce.cancel(debounceTag);
   }
 
@@ -182,15 +181,51 @@ class LoadingProgressTracker {
     );
   }
 
+  /// One shared ticker for every tracker, instead of a `Timer.periodic` per
+  /// loading tile.
+  ///
+  /// The old timer was created in the constructor and only ever cancelled when
+  /// the widget unmounted -- `shouldRefresh` suppressed the callback but the
+  /// wakeup still fired. With a grid of loading tiles that was dozens of timer
+  /// wakeups and setState calls per second.
+  static final Set<LoadingProgressTracker> _subscribers = <LoadingProgressTracker>{};
+  static Timer? _sharedTimer;
+
+  static void _subscribe(LoadingProgressTracker tracker, Duration interval) {
+    _subscribers.add(tracker);
+    _sharedTimer ??= Timer.periodic(interval, (_) {
+      // Copy: a callback may dispose its tracker and mutate the set.
+      for (final LoadingProgressTracker sub in _subscribers.toList(growable: false)) {
+        if (sub._isDisposed) {
+          continue;
+        }
+        if (sub.shouldRefresh?.call() ?? true) {
+          sub.onChanged();
+        } else {
+          // Nothing left to report for this one; stop waking for it.
+          _unsubscribe(sub);
+        }
+      }
+      if (_subscribers.isEmpty) {
+        _sharedTimer?.cancel();
+        _sharedTimer = null;
+      }
+    });
+  }
+
+  static void _unsubscribe(LoadingProgressTracker tracker) {
+    _subscribers.remove(tracker);
+    if (_subscribers.isEmpty) {
+      _sharedTimer?.cancel();
+      _sharedTimer = null;
+    }
+  }
+
   void _startPeriodicRefresh() {
     final Duration? interval = periodicRefreshInterval;
     if (interval == null) return;
 
-    _periodicRefresh = Timer.periodic(interval, (_) {
-      if (shouldRefresh?.call() ?? true) {
-        onChanged();
-      }
-    });
+    _subscribe(this, interval);
   }
 
   void _resetSpeedSamples() {

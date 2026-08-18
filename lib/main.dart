@@ -48,6 +48,15 @@ import 'package:lolisnatcher/src/widgets/webview/webview_page.dart';
 void main() async {
   CustomWidgetsBinding.ensureInitialized();
 
+  // Flutter defaults to 1000 entries / 100 MiB and this app never set either.
+  // Thumbnails are no longer evicted on every widget teardown (see
+  // Thumbnail.disposables), so the LRU is what bounds decoded-image memory --
+  // make that budget explicit rather than inherited. A grid tile decodes to
+  // roughly 1 MB, so this holds a few screens' worth for instant scroll-back.
+  PaintingBinding.instance.imageCache
+    ..maximumSize = 400
+    ..maximumSizeBytes = 256 << 20;
+
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;

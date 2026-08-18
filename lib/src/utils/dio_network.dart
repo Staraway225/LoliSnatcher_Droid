@@ -2,12 +2,16 @@
 
 import 'dart:async';
 
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:talker_dio_logger/talker_dio_logger.dart';
 
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/request_limiter.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 
 class DioNetwork {
@@ -30,6 +34,19 @@ class DioNetwork {
     //     ),
     //   );
     // }
+
+    // Dart's HttpClient leaves maxConnectionsPerHost null (unlimited), as does
+    // the socks_proxy client that HttpOverrides installs globally. Without this
+    // a grid fling can open a connection per in-flight request.
+    final HttpClientAdapter adapter = dio.httpClientAdapter;
+    if (adapter is IOHttpClientAdapter) {
+      final HttpClient Function()? previous = adapter.createHttpClient;
+      adapter.createHttpClient = () {
+        final HttpClient client = previous?.call() ?? HttpClient();
+        client.maxConnectionsPerHost = RequestLimiter.maxConnectionsPerHost;
+        return client;
+      };
+    }
 
     dio.options.baseUrl = baseUrl ?? '';
     // dio.options.connectTimeout = Duration(seconds: 10);

@@ -2,17 +2,20 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
+import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_avif/flutter_avif.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 
 import 'package:lolisnatcher/src/services/image_writer.dart';
 import 'package:lolisnatcher/src/utils/dio_network.dart';
+import 'package:lolisnatcher/src/utils/request_limiter.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 import 'package:lolisnatcher/src/widgets/image/abstract_custom_network_image.dart' as custom_network_image;
 
@@ -126,6 +129,15 @@ class NetworkImageLoader {
     }
 
     // --- Download Logic ---
+    // Everything above this point is a cache lookup and must NOT hold a permit;
+    // only the actual network fetch is rate limited.
+    final Duration? hostPause = RequestLimiter.pauseRemaining(resolved.host);
+    if (hostPause != null) {
+      // This host just rate limited us. Backing off here stops ~30 tiles from
+      // hammering it in lockstep.
+      await Future<void>.delayed(hostPause);
+    }
+
     // The captcha interceptor mutates the client, so that path keeps a private
     // instance. Everything else shares a pooled client, which is what lets
     // consecutive thumbnails reuse a connection instead of paying a fresh
@@ -146,47 +158,57 @@ class NetworkImageLoader {
     // a server that sends an initial buffer and then stalls stays pending forever
     final effectiveReceiveTimeout = receiveTimeout ?? _defaultReceiveTimeout;
     try {
-      response = withCache
-          ? await client.downloadUri(
-              resolved,
-              tempFilePath,
-              options: Options(
-                headers: headers,
-                sendTimeout: sendTimeout,
-                receiveTimeout: effectiveReceiveTimeout,
-                followRedirects: headers?.containsKey('LS-IGNORE-REDIRECT') == true ? false : true,
+      response = await RequestLimiter.withPermit<Response<dynamic>>(
+        () async => withCache
+            ? await client.downloadUri(
+                resolved,
+                tempFilePath,
+                options: Options(
+                  headers: headers,
+                  sendTimeout: sendTimeout,
+                  receiveTimeout: effectiveReceiveTimeout,
+                  followRedirects: headers?.containsKey('LS-IGNORE-REDIRECT') == true ? false : true,
+                ),
+                onReceiveProgress: (int count, int total) {
+                  chunkEvents?.add(
+                    ImageChunkEvent(
+                      cumulativeBytesLoaded: count,
+                      expectedTotalBytes: total <= 0 ? null : total,
+                    ),
+                  );
+                  onReceiveProgress?.call(count, total <= 0 ? null : total);
+                },
+                cancelToken: cancelToken,
+              )
+            : await client.getUri(
+                resolved,
+                options: Options(
+                  headers: headers,
+                  responseType: ResponseType.bytes,
+                  sendTimeout: sendTimeout,
+                  receiveTimeout: effectiveReceiveTimeout,
+                  followRedirects: headers?.containsKey('LS-IGNORE-REDIRECT') == true ? false : true,
+                ),
+                onReceiveProgress: (int count, int total) {
+                  chunkEvents?.add(
+                    ImageChunkEvent(
+                      cumulativeBytesLoaded: count,
+                      expectedTotalBytes: total <= 0 ? null : total,
+                    ),
+                  );
+                  onReceiveProgress?.call(count, total <= 0 ? null : total);
+                },
+                cancelToken: cancelToken,
               ),
-              onReceiveProgress: (int count, int total) {
-                chunkEvents?.add(
-                  ImageChunkEvent(
-                    cumulativeBytesLoaded: count,
-                    expectedTotalBytes: total <= 0 ? null : total,
-                  ),
-                );
-                onReceiveProgress?.call(count, total <= 0 ? null : total);
-              },
-              cancelToken: cancelToken,
-            )
-          : await client.getUri(
-              resolved,
-              options: Options(
-                headers: headers,
-                responseType: ResponseType.bytes,
-                sendTimeout: sendTimeout,
-                receiveTimeout: effectiveReceiveTimeout,
-                followRedirects: headers?.containsKey('LS-IGNORE-REDIRECT') == true ? false : true,
-              ),
-              onReceiveProgress: (int count, int total) {
-                chunkEvents?.add(
-                  ImageChunkEvent(
-                    cumulativeBytesLoaded: count,
-                    expectedTotalBytes: total <= 0 ? null : total,
-                  ),
-                );
-                onReceiveProgress?.call(count, total <= 0 ? null : total);
-              },
-              cancelToken: cancelToken,
-            );
+      );
+    } on DioException catch (e) {
+      try {
+        await File(tempFilePath).delete();
+      } catch (_) {}
+      if (RequestLimiter.isRateLimitStatus(e.response?.statusCode)) {
+        RequestLimiter.reportRateLimited(resolved.host);
+      }
+      rethrow;
     } catch (e) {
       try {
         await File(tempFilePath).delete();
@@ -243,12 +265,24 @@ class NetworkImageLoader {
     String url,
     Uint8List image,
   ) async {
-    if (!url.toLowerCase().endsWith('.gif') && !url.toLowerCase().contains('.gif')) {
+    // Sniff the GIF signature rather than the URL. The old check was
+    // `!endsWith('.gif') && !contains('.gif')`, where the `contains` made the
+    // `endsWith` dead and matched any URL merely mentioning .gif -- so this
+    // whole-buffer scan ran on the UI isolate for non-GIFs too.
+    if (image.length < 6 ||
+        image[0] != 0x47 || // G
+        image[1] != 0x49 || // I
+        image[2] != 0x46 || // F
+        image[3] != 0x38) {
+      // 8
       return image;
     }
 
     try {
-      final int len = image.length - 6;
+      // Graphic Control Extension blocks that matter live near the start; a
+      // multi-MB GIF does not need a full byte-by-byte walk on the UI thread.
+      const int scanLimit = 64 * 1024;
+      final int len = min(image.length, scanLimit) - 6;
       for (int i = 0; i < len; i++) {
         if (image[i] == 0x21 && image[i + 1] == 0xF9 && image[i + 2] == 0x04) {
           final int delay = image[i + 4] | (image[i + 5] << 8);
@@ -290,6 +324,35 @@ class NetworkImageLoader {
       print('NetworkImage Exception :: delete cache file :: $e');
     }
   }
+}
+
+/// Value equality for the request headers.
+///
+/// [CustomNetworkImage.obtainKey] returns `this`, so the provider *is* the key
+/// Flutter's `imageCache` hashes and compares. `headers` is a `Map`, which in
+/// Dart compares by identity, and `Tools.getFileCustomHeaders` allocates a fresh
+/// map on every call -- so two providers for the same URL were never equal and
+/// the memory cache could never produce a hit. Every rebuilt tile paid a full
+/// disk read plus a re-decode, and two tiles showing the same URL each ran their
+/// own download because `_pendingImages` could not dedupe them either.
+const MapEquality<String, String> _headersEquality = MapEquality<String, String>();
+
+bool _headersEqual(Map<String, String>? a, Map<String, String>? b) {
+  if (identical(a, b)) {
+    return true;
+  }
+  if (a == null || b == null) {
+    return false;
+  }
+  return _headersEquality.equals(a, b);
+}
+
+/// Order-independent hash of the header map, so equal maps hash equal.
+int _headersHash(Map<String, String>? headers) {
+  if (headers == null || headers.isEmpty) {
+    return 0;
+  }
+  return _headersEquality.hash(headers);
 }
 
 @immutable
@@ -405,7 +468,7 @@ class CustomNetworkImage extends ImageProvider<custom_network_image.CustomNetwor
     return other is CustomNetworkImage &&
         other.url == url &&
         other.scale == scale &&
-        other.headers == headers &&
+        _headersEqual(other.headers, headers) &&
         other.withCache == withCache &&
         other.cacheFolder == cacheFolder &&
         other.fileNameExtras == fileNameExtras &&
@@ -418,7 +481,7 @@ class CustomNetworkImage extends ImageProvider<custom_network_image.CustomNetwor
   int get hashCode => Object.hash(
     url,
     scale,
-    headers,
+    _headersHash(headers),
     withCache,
     cacheFolder,
     fileNameExtras,
@@ -554,7 +617,7 @@ class CustomNetworkAvifImage extends ImageProvider<custom_network_image.CustomNe
     return other is CustomNetworkAvifImage &&
         other.url == url &&
         other.scale == scale &&
-        other.headers == headers &&
+        _headersEqual(other.headers, headers) &&
         other.withCache == withCache &&
         other.cacheFolder == cacheFolder &&
         other.fileNameExtras == fileNameExtras &&
@@ -567,7 +630,7 @@ class CustomNetworkAvifImage extends ImageProvider<custom_network_image.CustomNe
   int get hashCode => Object.hash(
     url,
     scale,
-    headers,
+    _headersHash(headers),
     withCache,
     cacheFolder,
     fileNameExtras,

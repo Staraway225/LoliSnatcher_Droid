@@ -7,6 +7,7 @@ import 'package:lolisnatcher/src/data/booru_item.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/handlers/viewer_handler.dart';
+import 'package:lolisnatcher/src/widgets/preview/grid_child_index.dart';
 import 'package:lolisnatcher/src/widgets/preview/masonry_grid_delegate.dart';
 import 'package:lolisnatcher/src/widgets/thumbnail/thumbnail_card_build.dart';
 
@@ -58,6 +59,9 @@ class StaggeredBuilder extends StatelessWidget {
             addAutomaticKeepAlives: false,
             addRepaintBoundaries: false, // ThumbnailCardBuild has its own RepaintBoundary
             childCount: currentFetched.length,
+            // See GridChildIndexResolver: without this a trim tears down and
+            // re-inflates every visible tile.
+            findChildIndexCallback: GridChildIndexResolver.forList(currentFetched),
             exactExtentFor: (_) => gridDelegate.lastResolvedMaxScrollExtent,
             (context, index) {
               if (index >= currentFetched.length) {

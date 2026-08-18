@@ -210,7 +210,9 @@ class _ThumbnailLoadingState extends State<ThumbnailLoading> {
             child: Opacity(
               opacity: 0.66,
               child: LinearProgressIndicator(
-                value: percentDone == 0 ? null : percentDone,
+                // Determinate even at zero: an indeterminate indicator runs its
+                // own repeating ticker, and at 1px wide the sweep is invisible.
+                value: percentDone,
               ),
             ),
           ),
@@ -223,7 +225,9 @@ class _ThumbnailLoadingState extends State<ThumbnailLoading> {
             child: Opacity(
               opacity: 0.66,
               child: LinearProgressIndicator(
-                value: percentDone == 0 ? null : percentDone,
+                // Determinate even at zero: an indeterminate indicator runs its
+                // own repeating ticker, and at 1px wide the sweep is invisible.
+                value: percentDone,
               ),
             ),
           ),

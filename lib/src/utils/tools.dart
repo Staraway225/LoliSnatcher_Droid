@@ -333,7 +333,27 @@ class Tools {
     return false;
   }
 
+  /// Short-lived per-host cookie cache.
+  ///
+  /// On iOS this is `WKHTTPCookieStore.getAllCookies`, which enumerates the
+  /// entire cookie jar in the WebKit networking process and filters in Swift --
+  /// an IPC round trip per call. It was made two to three times per image (once
+  /// building headers, once in the Dio cookie interceptor), for every tile in a
+  /// grid, and even on pure cache hits.
+  static final Map<String, ({String value, DateTime at})> _cookieCache = {};
+  static const Duration _cookieCacheTtl = Duration(seconds: 30);
+
+  static void invalidateCookieCache() => _cookieCache.clear();
+
   static Future<String> getCookies(String uri) async {
+    final String cookieHost = Uri.tryParse(uri)?.host ?? '';
+    if (cookieHost.isNotEmpty) {
+      final cached = _cookieCache[cookieHost];
+      if (cached != null && DateTime.now().difference(cached.at) < _cookieCacheTtl) {
+        return cached.value;
+      }
+    }
+
     String cookieString = '';
     if (PlatformExt.hasWebviewSupport) {
       try {
@@ -358,11 +378,21 @@ class Tools {
       }
     }
 
-    return cookieString.trim();
+    final String result = cookieString.trim();
+    if (cookieHost.isNotEmpty) {
+      _cookieCache[cookieHost] = (value: result, at: DateTime.now());
+    }
+    return result;
   }
 
   static Future<bool> saveCookies(String uri, List<String> cookies) async {
     if (cookies.isEmpty) return true;
+
+    // New Set-Cookie headers invalidate whatever we cached for this host.
+    final String host = Uri.tryParse(uri)?.host ?? '';
+    if (host.isNotEmpty) {
+      _cookieCache.remove(host);
+    }
 
     if (PlatformExt.hasWebviewSupport) {
       try {

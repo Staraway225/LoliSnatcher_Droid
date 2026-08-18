@@ -59,7 +59,13 @@ class ThumbnailCardBuild extends StatelessWidget {
 
     return AutoScrollTag(
       highlightColor: Colors.red,
-      key: ValueKey(index),
+      // Keyed by item, NOT by index. An index key mismatches whenever the
+      // sliding window trims the front of the list, which tears down this whole
+      // subtree (and with it the Thumbnail's decoded image) even when the sliver
+      // correctly relocated the child. AutoScrollTag never uses its key for
+      // registration -- the tag registry is keyed on `index`, and
+      // didUpdateWidget re-registers when the index changes.
+      key: ValueKey(item.key),
       controller: scrollController,
       index: index,
       child: Material(

@@ -7,6 +7,7 @@ import 'package:lolisnatcher/src/data/booru_item.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/handlers/viewer_handler.dart';
+import 'package:lolisnatcher/src/widgets/preview/grid_child_index.dart';
 import 'package:lolisnatcher/src/widgets/thumbnail/thumbnail_card_build.dart';
 
 class GridBuilder extends StatelessWidget {
@@ -41,44 +42,52 @@ class GridBuilder extends StatelessWidget {
 
     return ValueListenableBuilder(
       valueListenable: tab.booruHandler.filteredFetched,
-      builder: (context, currentFetched, child) => SliverGrid.builder(
-        addAutomaticKeepAlives: false,
-        addRepaintBoundaries: false, // ThumbnailCardBuild has its own RepaintBoundary
-        itemCount: currentFetched.length,
+      builder: (context, currentFetched, child) => SliverGrid(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: columnCount,
           childAspectRatio: previewDisplay.isSquare ? 1 : 9 / 16,
           mainAxisSpacing: 4,
           crossAxisSpacing: 4,
         ),
-        itemBuilder: (BuildContext context, int index) {
-          final BooruItem item = currentFetched[index];
+        delegate: SliverChildBuilderDelegate(
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: false, // ThumbnailCardBuild has its own RepaintBoundary
+          childCount: currentFetched.length,
+          // Without this the sliding-window trim destroys and re-inflates every
+          // visible tile, blanking the grid on each trim.
+          findChildIndexCallback: GridChildIndexResolver.forList(currentFetched),
+          (BuildContext context, int index) {
+            if (index >= currentFetched.length) {
+              return null;
+            }
+            final BooruItem item = currentFetched[index];
 
-          return GridTile(
-            key: ValueKey(item.key),
-            // The reactive read lives inside ThumbnailCardBuild now, wrapping
-            // only the card. Previously this Obx rebuilt the whole tile -- tag,
-            // Material, Stack and progress overlay included -- for every visible
-            // item whenever anything was selected or the viewer changed page.
-            child: ThumbnailCardBuild(
-              index: index,
-              item: item,
-              handler: tab.booruHandler,
-              scrollController: scrollController,
-              selectionOf: () => (
-                selectedIndex: tab.selectedIndexOf(item),
-                isHighlighted: ViewerHandler.instance.current.value?.key == item.key,
-                hasSelected: tab.selected.isNotEmpty && tab.hasSelectedItems,
+            return GridTile(
+              key: ValueKey(item.key),
+              // The reactive read lives inside ThumbnailCardBuild now, wrapping
+              // only the card. Previously this Obx rebuilt the whole tile -- tag,
+              // Material, Stack and progress overlay included -- for every visible
+              // item whenever anything was selected or the viewer changed page.
+              child: ThumbnailCardBuild(
+                index: index,
+                item: item,
+                handler: tab.booruHandler,
+                scrollController: scrollController,
+                selectionOf: () => (
+                  selectedIndex: tab.selectedIndexOf(item),
+                  isHighlighted: ViewerHandler.instance.current.value?.key == item.key,
+                  hasSelected: tab.selected.isNotEmpty && tab.hasSelectedItems,
+                ),
+                selectable: true,
+                onSelected: onSelected,
+                onTap: onTap,
+                onDoubleTap: onDoubleTap,
+                onLongPress: onLongPress,
+                onSecondaryTap: onSecondaryTap,
               ),
-              selectable: true,
-              onSelected: onSelected,
-              onTap: onTap,
-              onDoubleTap: onDoubleTap,
-              onLongPress: onLongPress,
-              onSecondaryTap: onSecondaryTap,
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

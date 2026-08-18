@@ -3,7 +3,6 @@ import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:dio/dio.dart';
@@ -19,6 +18,7 @@ import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/utils/debouncer.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/request_limiter.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 import 'package:lolisnatcher/src/widgets/common/thumbnail_loading.dart';
 import 'package:lolisnatcher/src/widgets/image/custom_network_image.dart';
@@ -43,6 +43,34 @@ class Thumbnail extends StatefulWidget {
   @override
   State<Thumbnail> createState() => _ThumbnailState();
 }
+
+/// Whether a thumbnail should load the small preview rather than the sample.
+///
+/// Extracted so the "no separate sample exists" rule can be tested directly.
+/// When a post has no sample, `sampleURL` **is** the full original, so asking
+/// for sample quality means downloading and decoding the entire file for a
+/// ~130px grid cell. That guard used to be qualified with `!isStandalone`,
+/// which applied it only in the viewer -- where the full image is being loaded
+/// anyway -- and skipped it in the grid, where it matters most. Measured
+/// against rule34.xxx: 25% of posts have no sample, and one page of 20 grid
+/// tiles pulled 20.28 MB instead of 0.20 MB, including a 15.6 MB animated GIF.
+bool shouldUseThumbnailQuality({
+  required bool previewModeIsThumbnail,
+  required MediaType mediaType,
+  required String fileURL,
+  required String sampleURL,
+}) {
+  if (previewModeIsThumbnail) {
+    return true;
+  }
+  if (mediaType.isVideo || mediaType.isNeedToGuess || mediaType.isNeedToLoadItem) {
+    return true;
+  }
+  return fileURL == sampleURL;
+}
+
+/// Placeholder for a disabled ImageFiltered, which still requires a filter.
+final ImageFilter _noBlur = ImageFilter.blur();
 
 class _ThumbnailState extends State<Thumbnail> {
   final SettingsHandler settingsHandler = SettingsHandler.instance;
@@ -191,6 +219,11 @@ class _ThumbnailState extends State<Thumbnail> {
     double thumbRatio = 1;
     final bool hasSizeData = widget.item.fileHeight != null && widget.item.fileWidth != null;
 
+    // Reset first: these are only ever assigned below, so a recycled tile could
+    // keep a constraint computed for a previous item on the other axis.
+    thumbWidth = null;
+    thumbHeight = null;
+
     if (!widget.isStandalone) {
       thumbWidth = widthLimit;
       return;
@@ -211,7 +244,10 @@ class _ThumbnailState extends State<Thumbnail> {
             thumbWidth = widthLimit;
           } else {
             // horizontal image - resize to height
-            thumbHeight = widthLimit * thumbRatio;
+            // fileAspectRatio is width/height, so for a wide image this must
+            // divide. Multiplying targeted a height LARGER than the width, which
+            // for a 2:1 image meant decoding ~16x the pixels actually needed.
+            thumbHeight = widthLimit / thumbRatio;
           }
         } else {
           thumbRatio = 16 / 9;
@@ -236,17 +272,24 @@ class _ThumbnailState extends State<Thumbnail> {
     if (error is DioException && CancelToken.isCancel(error)) {
       //
     } else {
-      final int retryLimit = (kDebugMode || settingsHandler.shitDevice) ? 4 : 8;
+      // A host that just rate limited us gets a break before anything retries.
+      if (error is DioException && RequestLimiter.isRateLimitStatus(error.response?.statusCode)) {
+        RequestLimiter.reportRateLimited(error.requestOptions.uri.host);
+      }
+
+      final int retryLimit = settingsHandler.shitDevice ? 2 : RequestLimiter.maxAttempts;
 
       if (restartedCount < retryLimit) {
-        // attempt to reload N times with a 1s delay
+        // Exponential backoff with jitter, replacing a flat 500ms. The old
+        // policy let ~30 tiles retry in lockstep 8 times each -- up to 270
+        // requests in 4.5s at a host that had just told us to slow down.
         Debounce.debounce(
           tag: 'thumbnail_reload_${widget.item.hashCode}',
           callback: () async {
             await restartLoading();
             restartedCount++;
           },
-          duration: Duration(milliseconds: settingsHandler.shitDevice ? 1000 : 500),
+          duration: RequestLimiter.backoffFor(restartedCount),
         );
       } else {
         isFailed.value = true;
@@ -265,12 +308,12 @@ class _ThumbnailState extends State<Thumbnail> {
     final int loadGeneration = ++_loadGeneration;
     startedAt.value = DateTime.now().millisecondsSinceEpoch;
 
-    isThumbQuality =
-        settingsHandler.previewMode.isThumbnail ||
-        (widget.item.mediaType.value.isVideo ||
-            widget.item.mediaType.value.isNeedToGuess ||
-            widget.item.mediaType.value.isNeedToLoadItem) ||
-        (!widget.isStandalone && widget.item.fileURL == widget.item.sampleURL);
+    isThumbQuality = shouldUseThumbnailQuality(
+      previewModeIsThumbnail: settingsHandler.previewMode.isThumbnail,
+      mediaType: widget.item.mediaType.value,
+      fileURL: widget.item.fileURL,
+      sampleURL: widget.item.sampleURL,
+    );
     thumbURL = isThumbQuality == true ? widget.item.thumbnailURL : widget.item.sampleURL;
     thumbFolder = (isThumbQuality == true || thumbURL == widget.item.thumbnailURL) ? 'thumbnails' : 'samples';
     useExtra.value = isThumbQuality == false && !widget.item.isHidden && !settingsHandler.shitDevice;
@@ -332,6 +375,15 @@ class _ThumbnailState extends State<Thumbnail> {
     );
     mainImageStream!.addListener(mainImageListener!);
 
+    // The underlay exists to show *something* while the larger sample downloads.
+    // If the sample was already in the image cache its stream resolves
+    // synchronously, so `isLoaded` is already true by now and a second request
+    // would fetch a blurry preview nobody will ever see. Skipping it halves the
+    // request count on every scroll-back and re-visit.
+    if (isLoaded.value) {
+      useExtra.value = false;
+    }
+
     if (useExtra.value) {
       final ImageProvider newExtraProvider = await getImageProvider(
         false,
@@ -376,7 +428,7 @@ class _ThumbnailState extends State<Thumbnail> {
       unawaited(cleanProviderCache());
     }
 
-    disposables();
+    disposables(evictProviders: true);
 
     total.value = 0;
     received.value = 0;
@@ -441,7 +493,16 @@ class _ThumbnailState extends State<Thumbnail> {
     super.dispose();
   }
 
-  void disposables() {
+  /// [evictProviders] purges the decoded bitmaps from Flutter's image cache.
+  ///
+  /// Correct when *this* provider is being abandoned (a failed load being
+  /// retried), wrong when the widget is merely being torn down for structural
+  /// reasons -- a trim, an orientation change, a tab rebuild. Evicting there
+  /// throws away work that is about to be needed again, which is what made the
+  /// grid visibly blank out and reload. Flutter's own LRU already bounds the
+  /// cache (see the explicit limits set in main.dart), and an image with no
+  /// live listeners is a normal LRU candidate the moment this widget goes away.
+  void disposables({bool evictProviders = false}) {
     _loadGeneration++;
     _removeMainImageStreamListener();
     _removeExtraImageStreamListener();
@@ -461,11 +522,12 @@ class _ThumbnailState extends State<Thumbnail> {
     }
     loadItemCancelToken = null;
 
-    // evict from memory cache only when in grid
     if (widget.isStandalone) {
-      mainProvider.value?.evict();
+      if (evictProviders) {
+        mainProvider.value?.evict();
+        extraProvider.value?.evict();
+      }
       mainProvider.value = null;
-      extraProvider.value?.evict();
       extraProvider.value = null;
     }
 
@@ -539,6 +601,16 @@ class _ThumbnailState extends State<Thumbnail> {
             ? 40
             : max(constraints.maxWidth * (widget.isStandalone ? 0.1 : 0.06), 10);
 
+        // Built once per layout instead of twice per build. blurImages defaults
+        // to false, so in the common case both ImageFiltered widgets below were
+        // allocating a native Skia filter that was never used.
+        final bool blurEnabledForExtra = settingsHandler.blurImages || widget.item.isHidden;
+        final bool blurEnabledForMain =
+            isBlurred && (settingsHandler.blurImages || (widget.item.isHidden && !settingsHandler.shitDevice));
+        final ImageFilter? sharedBlur = (blurEnabledForExtra || blurEnabledForMain)
+            ? ImageFilter.blur(sigmaX: blurAmount, sigmaY: blurAmount, tileMode: TileMode.decal)
+            : null;
+
         return Stack(
           alignment: Alignment.center,
           children: [
@@ -570,12 +642,8 @@ class _ThumbnailState extends State<Thumbnail> {
                   );
                 },
                 child: ImageFiltered(
-                  enabled: settingsHandler.blurImages || widget.item.isHidden,
-                  imageFilter: ImageFilter.blur(
-                    sigmaX: blurAmount,
-                    sigmaY: blurAmount,
-                    tileMode: TileMode.decal,
-                  ),
+                  enabled: blurEnabledForExtra,
+                  imageFilter: sharedBlur ?? _noBlur,
                   child: ValueListenableBuilder(
                     valueListenable: extraProvider,
                     builder: (context, extraProvider, _) {
@@ -631,14 +699,8 @@ class _ThumbnailState extends State<Thumbnail> {
                     ? () => setState(() => isBlurred = !isBlurred)
                     : null,
                 child: ImageFiltered(
-                  enabled:
-                      isBlurred &&
-                      (settingsHandler.blurImages || (widget.item.isHidden && !settingsHandler.shitDevice)),
-                  imageFilter: ImageFilter.blur(
-                    sigmaX: blurAmount,
-                    sigmaY: blurAmount,
-                    tileMode: TileMode.decal,
-                  ),
+                  enabled: blurEnabledForMain,
+                  imageFilter: sharedBlur ?? _noBlur,
                   child: ValueListenableBuilder(
                     valueListenable: mainProvider,
                     builder: (context, mainProvider, _) {

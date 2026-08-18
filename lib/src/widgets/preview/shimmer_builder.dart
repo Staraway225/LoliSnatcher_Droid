@@ -328,7 +328,35 @@ class _ShimmerLoadingState extends State<ShimmerLoading> {
     super.dispose();
   }
 
+  /// Whether this tile currently overlaps the shimmer's box (i.e. the viewport).
+  ///
+  /// Lazy slivers lay out a viewport of cache extent either side of the visible
+  /// area, so roughly two thirds of registered tiles are laid out but never
+  /// painted. Rebuilding and re-shading those every tick is pure waste: each
+  /// rebuild allocates a ShaderMask, which is a saveLayer / offscreen render
+  /// target, plus a localToGlobal ancestor walk.
+  bool get _isWithinViewport {
+    final ShimmerState? shimmer = _shimmerState;
+    if (shimmer == null || !shimmer.isSized) {
+      return false;
+    }
+    final RenderObject? renderObj = context.findRenderObject();
+    if (renderObj is! RenderBox || !renderObj.attached || !renderObj.hasSize) {
+      return false;
+    }
+    final Offset offset = shimmer.getDescendantOffset(descendant: renderObj);
+    final Size shimmerSize = shimmer.size;
+    final Size selfSize = renderObj.size;
+    return offset.dy + selfSize.height >= 0 &&
+        offset.dy <= shimmerSize.height &&
+        offset.dx + selfSize.width >= 0 &&
+        offset.dx <= shimmerSize.width;
+  }
+
   void _onShimmerChange() {
+    if (!_isWithinViewport) {
+      return;
+    }
     if (widget.isLoading) {
       // update the shimmer painting.
       if (_shimmerUpdateIndex.value >= 100_000) {

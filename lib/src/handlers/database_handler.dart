@@ -62,6 +62,7 @@ class DBHandler {
       db = await databaseFactory.openDatabase('${path}store.db');
     }
     await updateTable();
+    await createRequiredIndexes();
     await fixBooruItems(onStatusUpdate);
     await deleteUntracked();
     return true;
@@ -155,9 +156,24 @@ class DBHandler {
     return false;
   }
 
+  /// Indexes the app cannot perform acceptably without.
+  ///
+  /// Created unconditionally, unlike [createIndexes], which is behind a settings
+  /// toggle that defaults to off. `getMultipleTrackedValues` runs on every
+  /// fetched page and matches on postURL/fileURL; without an index that is a
+  /// full table scan evaluating 2N string comparisons per row. `getTagID` does
+  /// the same against Tag.name for every tag written.
+  Future<bool> createRequiredIndexes() async {
+    await db?.execute('CREATE INDEX IF NOT EXISTS BooruItem_postURL_index ON BooruItem (postURL);');
+    await db?.execute('CREATE INDEX IF NOT EXISTS BooruItem_fileURL_index ON BooruItem (fileURL);');
+    await db?.execute('CREATE INDEX IF NOT EXISTS Tag_name_index ON Tag (name);');
+    return true;
+  }
+
   Future<bool> createIndexes() async {
     await db?.execute('CREATE INDEX IF NOT EXISTS ImageTag_tagID_index ON ImageTag (tagID);');
     await db?.execute('CREATE INDEX IF NOT EXISTS ImageTag_booruItemID_index ON ImageTag (booruItemID);');
+    await createRequiredIndexes();
     return true;
   }
 
@@ -166,10 +182,10 @@ class DBHandler {
     await db?.execute('DROP INDEX IF EXISTS ImageTag_booruItemID_index;');
     await db?.execute('DROP INDEX IF EXISTS BooruItem_isSnatched_index;');
     await db?.execute('DROP INDEX IF EXISTS BooruItem_isFavourite_index;');
-    await db?.execute('DROP INDEX IF EXISTS BooruItem_fileURL_index;');
+    // BooruItem_postURL_index / BooruItem_fileURL_index / Tag_name_index are
+    // required for acceptable lookup performance and are deliberately kept.
     await db?.execute('DROP INDEX IF EXISTS BooruItem_id_index;');
     await db?.execute('DROP INDEX IF EXISTS BooruItem_fileURL_isFavourite_isSnatched_index;');
-    await db?.execute('DROP INDEX IF EXISTS Tag_name_index;');
     await db?.execute('DROP INDEX IF EXISTS Tag_id_index;');
     return true;
   }
@@ -1145,11 +1161,18 @@ class DBHandler {
     // print("Query took ${DateTime.now().difference(startTime).inMilliseconds}ms"); // performance test
 
     if (result != null) {
+      // Index the result once instead of a linear firstWhere per item, which
+      // made the join O(items x rows) on top of the query itself.
+      final Map<String, dynamic> byPostUrl = <String, dynamic>{};
+      for (final dynamic row in result) {
+        final String? postURL = row['postURL']?.toString();
+        if (postURL != null) {
+          byPostUrl[postURL] = row;
+        }
+      }
+
       for (final BooruItem item in items) {
-        final res = result.firstWhere(
-          (el) => el['postURL'].toString() == item.postURL,
-          orElse: () => {'isSnatched': 0, 'isFavourite': 0},
-        );
+        final dynamic res = byPostUrl[item.postURL] ?? const {'isSnatched': 0, 'isFavourite': 0};
         values.add([Tools.intToBool(res['isSnatched']), Tools.intToBool(res['isFavourite'])]);
       }
     }

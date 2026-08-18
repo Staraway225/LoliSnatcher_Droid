@@ -19,10 +19,34 @@ import 'package:lolisnatcher/src/utils/tools.dart';
 
 class ImageWriter {
   ImageWriter() {
+    // Deliberately not awaited: setPaths() is idempotent and every path
+    // consumer awaits it anyway. See the static cache below for why this is now
+    // cheap.
     setPaths();
   }
   final SettingsHandler settingsHandler = SettingsHandler.instance;
-  String path = '', cacheRootPath = '';
+
+  /// Resolved once per process, not once per instance.
+  ///
+  /// These come from platform channels (`getPicturesDir` / `getCacheDir`, which
+  /// on iOS both route to `getApplicationDocumentsDirectory`). A fresh
+  /// `ImageWriter` is constructed for *every* image download, and `setPaths()`
+  /// used to run per instance -- twice, in fact, since the constructor fires it
+  /// unawaited while `getCachePathString` awaits it, so the two raced. That is
+  /// several channel round trips per thumbnail, paid even on a pure cache hit.
+  static String _sharedPath = '';
+  static String _sharedCacheRootPath = '';
+  static Future<bool>? _pathsFuture;
+
+  String get path => _sharedPath;
+  String get cacheRootPath => _sharedCacheRootPath;
+
+  /// Drops the cached paths, e.g. after the storage override changes.
+  static void invalidatePaths() {
+    _sharedPath = '';
+    _sharedCacheRootPath = '';
+    _pathsFuture = null;
+  }
 
   /// return null - file already exists
   /// return String - file saved
@@ -573,21 +597,25 @@ class ImageWriter {
     return '';
   }
 
-  Future<bool> setPaths() async {
-    if (path.isEmpty) {
+  Future<bool> setPaths() {
+    // Share one in-flight resolution so concurrent callers cannot each issue
+    // their own channel calls.
+    return _pathsFuture ??= _resolvePaths();
+  }
+
+  Future<bool> _resolvePaths() async {
+    if (_sharedPath.isEmpty) {
       if (settingsHandler.extPathOverride.isEmpty) {
-        path = await ServiceHandler.getPicturesDir();
+        _sharedPath = await ServiceHandler.getPicturesDir();
       } else {
-        path = settingsHandler.extPathOverride;
+        _sharedPath = settingsHandler.extPathOverride;
       }
     }
 
-    if (cacheRootPath.isEmpty) {
-      cacheRootPath = await ServiceHandler.getCacheDir();
+    if (_sharedCacheRootPath.isEmpty) {
+      _sharedCacheRootPath = await ServiceHandler.getCacheDir();
     }
 
-    // print('path: $path');
-    // print('cache path: $cacheRootPath');
     return true;
   }
 }
