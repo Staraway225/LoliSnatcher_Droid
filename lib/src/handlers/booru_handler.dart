@@ -46,63 +46,363 @@ abstract class BooruHandler {
   RxList<BooruItem> fetched = RxList<BooruItem>([]);
   RxList<BooruItem> filteredFetched = RxList<BooruItem>([]);
 
-  /// Filters the list of fetched items and stores them in filteredFetched
+  /// Monotone count of items ever appended to [fetched].
   ///
-  /// Should always be called after fetched changed (so don't forget to add it in custom afterParseResponse or search methods)
-  /// (See gelbooru of favourites handlers for example)
+  /// End-of-results detection used to compare `fetched.length` before and after
+  /// a search. That breaks the moment anything removes items from [fetched]
+  /// (see the sliding-window trim): the lengths can match again and the tab gets
+  /// permanently marked as being on its last page. A counter that only ever
+  /// grows is immune to that.
+  int appendedItemsCount = 0;
+
+  /// Bumped by [resetFetched] so dependent caches can tell that [fetched] no
+  /// longer continues the sequence they were derived from.
+  int fetchedGeneration = 0;
+
+  /// Whether this handler supports front-trimming of [fetched].
+  bool get supportsTrim => true;
+
+  /// Clears [fetched] and every piece of derived incremental state.
+  ///
+  /// Deliberately leaves [filteredFetched] alone, matching the previous
+  /// behaviour where a failed search did not blank the grid. The next append
+  /// replaces it wholesale.
+  void resetFetched() {
+    fetched.value = [];
+    totalCount.value = 0;
+    appendedItemsCount = 0;
+    fetchedGeneration++;
+    _fileUrlOwners.clear();
+    _serverIdOwners.clear();
+    _evictedFileUrls.clear();
+    _evictedServerIds.clear();
+    _filteredFromFetchedCount = 0;
+    _lastAppendFilteredStart = 0;
+    _filteredNeedsRebuild = true;
+  }
+
+  // ---- incremental filter state -------------------------------------------
+
+  /// Maps a dedupe key to the item that currently claims it.
+  ///
+  /// Ownership rather than a plain "seen" set, so a claim can be handed back
+  /// when its owner is dropped. Comparisons are by [identical] only: [BooruItem]
+  /// is `Equatable` over 38 props, so `==` is far too expensive for a hot path.
+  final Map<String, BooruItem> _fileUrlOwners = <String, BooruItem>{};
+  final Map<String, BooruItem> _serverIdOwners = <String, BooruItem>{};
+
+  /// Dedupe keys whose owner was removed by the sliding-window trim.
+  ///
+  /// Stored as bare strings, never item references, so trimming actually frees
+  /// the items. They are consulted on every pass so a trim leaves
+  /// [filteredFetched] a strict *suffix* of its old self: without this, a
+  /// duplicate whose first occurrence was evicted would be re-admitted, and if
+  /// it sits mid-list every index after it shifts, which silently invalidates
+  /// the scroll-offset compensation.
+  final Set<String> _evictedFileUrls = <String>{};
+  final Set<String> _evictedServerIds = <String>{};
+
+  /// How many entries of [fetched] the current [filteredFetched] derives from.
+  int _filteredFromFetchedCount = 0;
+
+  /// Index into [filteredFetched] at which the most recent append began.
+  int _lastAppendFilteredStart = 0;
+
+  /// Set when [filteredFetched] no longer derives from [fetched] at all.
+  bool _filteredNeedsRebuild = true;
+
+  /// Number of [fetched] entries visited by filtering. Test instrumentation:
+  /// this is the exact, hardware-independent signal the benchmarks assert on.
+  @visibleForTesting
+  int debugFilterVisits = 0;
+
+  @visibleForTesting
+  int get debugDedupeKeyCount =>
+      _fileUrlOwners.length + _serverIdOwners.length + _evictedFileUrls.length + _evictedServerIds.length;
+
+  @visibleForTesting
+  Iterable<String> get debugFileUrlKeys => _fileUrlOwners.keys;
+
+  @visibleForTesting
+  void debugResetFilterCounters() {
+    debugFilterVisits = 0;
+  }
+
+  bool _passesFilters(
+    BooruItem item,
+    SettingsHandler settingsHandler, {
+    required bool filterFavourites,
+    required bool filterSnatched,
+  }) {
+    if (!ContentPolicy.isItemAllowed(booru, item)) {
+      return false;
+    }
+    if (settingsHandler.filterHated && item.isHidden) {
+      return false;
+    }
+    if (settingsHandler.filterMarked && item.isMarked) {
+      return false;
+    }
+    if (settingsHandler.filterAi && item.isAI) {
+      return false;
+    }
+    if (filterFavourites && item.isFavourite.value == true) {
+      return false;
+    }
+    if (filterSnatched && item.isSnatched.value == true) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Claims [item]'s dedupe keys, or returns false if either is already taken.
+  ///
+  /// Matches the previous semantics exactly: an item rejected by a *filter*
+  /// never reaches this point and so never claims anything.
+  bool _claim(BooruItem item) {
+    final String url = item.fileURL;
+    final String? serverId = item.serverId;
+
+    if (url.isNotEmpty && (_fileUrlOwners.containsKey(url) || _evictedFileUrls.contains(url))) {
+      return false;
+    }
+    if (serverId != null && (_serverIdOwners.containsKey(serverId) || _evictedServerIds.contains(serverId))) {
+      return false;
+    }
+
+    if (url.isNotEmpty) {
+      _fileUrlOwners[url] = item;
+    }
+    if (serverId != null) {
+      _serverIdOwners[serverId] = item;
+    }
+    return true;
+  }
+
+  /// Hands back [item]'s claims, but only those it actually owns.
+  ///
+  /// The ownership check is essential. If `A(url=X)` is dropped by a filter it
+  /// never claims `X` and `B(url=X)` becomes the owner; blindly removing `X`
+  /// when `A` goes away would release a key `B` still holds, and the next page
+  /// containing `X` would be admitted as a visible duplicate next to `B`.
+  void _release(BooruItem item) {
+    final String url = item.fileURL;
+    if (url.isNotEmpty && identical(_fileUrlOwners[url], item)) {
+      _fileUrlOwners.remove(url);
+    }
+    final String? serverId = item.serverId;
+    if (serverId != null && identical(_serverIdOwners[serverId], item)) {
+      _serverIdOwners.remove(serverId);
+    }
+  }
+
+  /// Full re-filter of everything in [fetched].
+  ///
+  /// Call this whenever the *predicate* may have changed -- settings toggles,
+  /// hidden/marked tag edits, favourite/snatched flips. For the append path use
+  /// [filterAppendedFetched], which is O(new items) instead of O(everything).
   void filterFetched() {
     final SettingsHandler settingsHandler = SettingsHandler.instance;
 
     final List<BooruItem> itemsBeforeFilter = filteredFetched;
     final List<BooruItem> filteredItems = [];
-    final Set<String> seenFileUrls = {};
-    final Set<String> seenServerIds = {};
+    _fileUrlOwners.clear();
+    _serverIdOwners.clear();
     final bool filterFavourites = settingsHandler.filterFavourites && booru.type?.isFavourites != true;
     final bool filterSnatched = settingsHandler.filterSnatched && booru.type?.isDownloads != true;
 
+    assert(() {
+      debugFilterVisits += fetched.length;
+      return true;
+    }(), 'debug visit counter');
+
     for (final item in fetched) {
-      if (!ContentPolicy.isItemAllowed(booru, item)) {
+      if (!_passesFilters(
+        item,
+        settingsHandler,
+        filterFavourites: filterFavourites,
+        filterSnatched: filterSnatched,
+      )) {
         continue;
       }
 
-      if (settingsHandler.filterHated && item.isHidden) {
+      if (!_claim(item)) {
         continue;
-      }
-
-      if (settingsHandler.filterMarked && item.isMarked) {
-        continue;
-      }
-
-      if (settingsHandler.filterAi && item.isAI) {
-        continue;
-      }
-
-      if (filterFavourites && item.isFavourite.value == true) {
-        continue;
-      }
-
-      if (filterSnatched && item.isSnatched.value == true) {
-        continue;
-      }
-
-      final String? serverId = item.serverId;
-      final bool duplicateFileUrl = item.fileURL.isNotEmpty && seenFileUrls.contains(item.fileURL);
-      final bool duplicateServerId = serverId != null && seenServerIds.contains(serverId);
-      if (duplicateFileUrl || duplicateServerId) {
-        continue;
-      }
-      if (item.fileURL.isNotEmpty) {
-        seenFileUrls.add(item.fileURL);
-      }
-      if (serverId != null) {
-        seenServerIds.add(serverId);
       }
 
       filteredItems.add(item);
     }
 
+    _filteredFromFetchedCount = fetched.length;
+    _lastAppendFilteredStart = filteredItems.length;
+    _filteredNeedsRebuild = false;
+
     if (!listEquals(itemsBeforeFilter, filteredItems)) {
       filteredFetched.value = filteredItems;
+    }
+  }
+
+  /// Incremental filter for items just appended to the end of [fetched].
+  ///
+  /// Falls back to [filterFetched] if the cached state and [fetched] have
+  /// drifted apart, so the worst case is exactly the old behaviour.
+  void filterAppendedFetched(List<BooruItem> newItems) {
+    if (_filteredNeedsRebuild || _filteredFromFetchedCount != fetched.length - newItems.length) {
+      filterFetched();
+      return;
+    }
+
+    final SettingsHandler settingsHandler = SettingsHandler.instance;
+    final bool filterFavourites = settingsHandler.filterFavourites && booru.type?.isFavourites != true;
+    final bool filterSnatched = settingsHandler.filterSnatched && booru.type?.isDownloads != true;
+
+    assert(() {
+      debugFilterVisits += newItems.length;
+      return true;
+    }(), 'debug visit counter');
+
+    final List<BooruItem> passing = [];
+    for (final item in newItems) {
+      if (!_passesFilters(
+        item,
+        settingsHandler,
+        filterFavourites: filterFavourites,
+        filterSnatched: filterSnatched,
+      )) {
+        continue;
+      }
+
+      if (!_claim(item)) {
+        continue;
+      }
+
+      passing.add(item);
+    }
+
+    _filteredFromFetchedCount = fetched.length;
+    _lastAppendFilteredStart = filteredFetched.length;
+
+    if (passing.isNotEmpty) {
+      // In-place append: RxList.addAll fires exactly one refresh().
+      filteredFetched.addAll(passing);
+    }
+  }
+
+  /// Drops the prefix of [fetched] that corresponds to the first [count] items
+  /// of [filteredFetched], for the sliding-window scroll cache.
+  ///
+  /// Returns how many filtered items were actually removed, or 0 if nothing
+  /// happened -- in which case the caller must **not** compensate the scroll
+  /// offset.
+  ///
+  /// No re-filter is needed. [filteredFetched] is by construction an
+  /// order-preserving subsequence of [fetched], so cutting [fetched] at the
+  /// element that backs `filteredFetched[count]` removes exactly the first
+  /// [count] filtered items and nothing else. That makes the result provably a
+  /// strict suffix, which is what the scroll compensation relies on, and costs
+  /// O(cut) rather than O(fetched).
+  int trimFrontByFilteredCount(int count) {
+    if (!supportsTrim || count <= 0 || _filteredNeedsRebuild) {
+      return 0;
+    }
+    final List<BooruItem> filtered = filteredFetched.value;
+    if (count >= filtered.length) {
+      // Never trim the whole list: there would be no anchor left to align to.
+      return 0;
+    }
+
+    final BooruItem boundary = filtered[count];
+    final List<BooruItem> src = fetched.value;
+    int cut = -1;
+    for (int i = 0; i < src.length; i++) {
+      if (identical(src[i], boundary)) {
+        cut = i;
+        break;
+      }
+    }
+    if (cut <= 0) {
+      return 0;
+    }
+
+    // Hand back the dedupe keys owned by the evicted items, but remember them as
+    // bare strings. Keeping the key prevents a later duplicate from being
+    // admitted mid-list (which would shift indices under the scroll offset),
+    // while dropping the item reference is what actually frees memory.
+    for (int i = 0; i < cut; i++) {
+      final BooruItem item = src[i];
+      final String url = item.fileURL;
+      if (url.isNotEmpty && identical(_fileUrlOwners[url], item)) {
+        _fileUrlOwners.remove(url);
+        _evictedFileUrls.add(url);
+      }
+      final String? serverId = item.serverId;
+      if (serverId != null && identical(_serverIdOwners[serverId], item)) {
+        _serverIdOwners.remove(serverId);
+        _evictedServerIds.add(serverId);
+      }
+    }
+
+    // Assign rather than removeRange: RxList routes range removal through
+    // operator []=, which fires one refresh() per element.
+    fetched.value = src.sublist(cut);
+    filteredFetched.value = filtered.sublist(count);
+
+    _filteredFromFetchedCount = fetched.length;
+    _lastAppendFilteredStart = max(0, _lastAppendFilteredStart - count);
+
+    assert(
+      identical(filteredFetched.first, boundary),
+      'trim must leave filteredFetched a strict suffix of itself',
+    );
+
+    return count;
+  }
+
+  /// Re-checks the most recently appended items and drops any that now fail.
+  ///
+  /// [setMultipleTrackedValues] hydrates `isSnatched`/`isFavourite` from the DB
+  /// *after* the page has already been filtered. Under the old full-rescan the
+  /// next page silently cleaned that up; with an incremental append it never
+  /// would, so `filterSnatched`/`filterFavourites` would visibly stop working.
+  /// Only ever removes -- re-admitting would reorder the list.
+  void refilterAppendedFetched() {
+    if (_filteredNeedsRebuild) {
+      return;
+    }
+
+    final SettingsHandler settingsHandler = SettingsHandler.instance;
+    final bool filterFavourites = settingsHandler.filterFavourites && booru.type?.isFavourites != true;
+    final bool filterSnatched = settingsHandler.filterSnatched && booru.type?.isDownloads != true;
+    if (!filterFavourites && !filterSnatched) {
+      // Nothing hydration can change affects the outcome.
+      return;
+    }
+
+    final List<BooruItem> current = filteredFetched.value;
+    final int start = min(_lastAppendFilteredStart, current.length);
+    if (start >= current.length) {
+      return;
+    }
+
+    final List<BooruItem> tail = [];
+    bool changed = false;
+    for (int i = start; i < current.length; i++) {
+      final BooruItem item = current[i];
+      if (!_passesFilters(
+        item,
+        settingsHandler,
+        filterFavourites: filterFavourites,
+        filterSnatched: filterSnatched,
+      )) {
+        _release(item);
+        changed = true;
+        continue;
+      }
+      tail.add(item);
+    }
+
+    if (changed) {
+      filteredFetched.value = [...current.sublist(0, start), ...tail];
     }
   }
 
@@ -147,12 +447,11 @@ abstract class BooruHandler {
 
     // if tags are different than previous tags, reset fetched
     if (prevTags != tags) {
-      fetched.value = [];
-      totalCount.value = 0;
+      resetFetched();
     }
 
-    // get amount of items before fetching
-    final int length = fetched.length;
+    // count of appended items before fetching
+    final int appendedBefore = appendedItemsCount;
 
     // create url
     final String url = makeURL(tags);
@@ -195,8 +494,8 @@ abstract class BooruHandler {
         // save tags for check on next search
         prevTags = tags;
 
-        // if amount of items didn't change after fetching, then we consider that there are no more pages and lock future fetches
-        if (fetched.length == length) {
+        // if nothing was appended after fetching, then we consider that there are no more pages and lock future fetches
+        if (appendedItemsCount == appendedBefore) {
           locked = true;
         }
       } else {
@@ -333,7 +632,8 @@ abstract class BooruHandler {
   Future<void> afterParseResponse(List<BooruItem> newItems) async {
     final int lengthBefore = fetched.length;
     fetched.addAll(newItems);
-    filterFetched();
+    appendedItemsCount += newItems.length;
+    filterAppendedFetched(newItems);
     unawaited(setMultipleTrackedValues(lengthBefore, fetched.length));
     unawaited(populateTagHandler(newItems));
 
@@ -783,7 +1083,11 @@ abstract class BooruHandler {
   bool get shouldPopulateTags => false;
 
   Future<void> populateTagHandler(List<BooruItem> items) async {
-    final List<String> unTyped = [];
+    // A LinkedHashSet keeps insertion order (so the queued list is unchanged)
+    // while making the membership test O(1). This used to be List.contains --
+    // a linear scan inside a nested loop over items x tags, i.e. millions of
+    // string comparisons per fetched page, on the UI isolate.
+    final Set<String> unTyped = <String>{};
     for (int x = 0; x < items.length; x++) {
       for (int i = 0; i < items[x].tagsList.length; i++) {
         final Tag tag = items[x].tagsList[i];
@@ -792,16 +1096,13 @@ abstract class BooruHandler {
           tag.fullString,
         ); //TagHandler.instance.hasTag(tag);
         if (!alreadyStoredAndNotStale) {
-          final bool isPresent = unTyped.contains(tag.fullString);
-          if (!isPresent) {
-            unTyped.add(tag.fullString);
-          }
+          unTyped.add(tag.fullString);
         }
       }
     }
 
     if (unTyped.isNotEmpty) {
-      TagHandler.instance.queue(unTyped, booru, 200);
+      TagHandler.instance.queue(unTyped.toList(), booru, 200);
     }
   }
 
@@ -850,19 +1151,33 @@ abstract class BooruHandler {
       return;
     }
 
-    // generate list of new fetched indexes
-    final List<int> fetchedIndexes = List.generate(diff, (index) => beforePos + index);
+    // Capture the items themselves, not their indexes. The DB round trip below
+    // is asynchronous, and indexes are only valid until something mutates
+    // fetched -- at which point these writes would land on the wrong items.
+    final int start = min(beforePos, fetched.length);
+    final int end = min(beforePos + diff - 1, fetched.length);
+    if (end <= start) {
+      return;
+    }
+    final List<BooruItem> items = fetched.sublist(start, end);
 
     final SettingsHandler settingsHandler = SettingsHandler.instance;
-    if (settingsHandler.dbHandler.db != null && diff > 0) {
+    if (settingsHandler.dbHandler.db != null && items.isNotEmpty) {
       final List<List<bool>> valuesList = await settingsHandler.dbHandler.getMultipleTrackedValues(
-        fetched.sublist(fetchedIndexes.first, fetchedIndexes.last),
-      ); //.map((e) => e.fileURL).toList()
+        items,
+      );
 
       valuesList.asMap().forEach((index, values) {
-        fetched[fetchedIndexes[index]].isSnatched.value = values[0];
-        fetched[fetchedIndexes[index]].isFavourite.value = values[1];
+        if (index < items.length) {
+          items[index].isSnatched.value = values[0];
+          items[index].isFavourite.value = values[1];
+        }
       });
+
+      // These flags landed after the page was filtered, so give the appended
+      // range one more pass. Cheap (bounded by the page size) and strictly
+      // better than the old behaviour, which only applied them one page later.
+      refilterAppendedFetched();
     }
 
     return;

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
+import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/services/image_writer.dart';
 import 'package:lolisnatcher/src/services/image_writer_isolate.dart';
 import 'package:lolisnatcher/src/utils/dio_network.dart';
@@ -25,6 +26,7 @@ class DioDownloader {
     this.cacheFolder = 'other',
     this.timeoutDuration,
     this.fileNameExtras = '',
+    this.withLogging,
   });
 
   final String url;
@@ -39,6 +41,17 @@ class DioDownloader {
   final String cacheFolder;
   final Duration? timeoutDuration;
   final String fileNameExtras;
+
+  /// Whether to attach the HTTP inspector interceptors to this download.
+  ///
+  /// Defaults to the `useImageLogging` debug toggle, mirroring
+  /// `CustomNetworkImage`. This matters a great deal: these requests use
+  /// `ResponseType.bytes`, and Alice retains `response.data` forever while
+  /// computing its size via `utf8.encode(data.toString())` -- for a 50MB video
+  /// that is a ~200MB string plus a ~200MB encode, thrown away to get an int.
+  final bool? withLogging;
+
+  bool get _skipLogging => !(withLogging ?? SettingsHandler.instance.useImageLogging.value);
 
   Isolate? isolate;
   ReceivePort receivePort = ReceivePort();
@@ -186,7 +199,7 @@ class DioDownloader {
 
       // load from network and cache if enabled
       onEvent?.call('isFromNetwork', null);
-      currentClient = DioNetwork.getClient();
+      currentClient = DioNetwork.getClient(skipLogging: _skipLogging);
       final Response response = await currentClient!.get(
         resolved,
         options: Options(
@@ -303,7 +316,7 @@ class DioDownloader {
       final String resolved = Uri.base.resolve(url).toString();
       // load from network and cache if enabled
       onEvent?.call('isFromNetwork', null);
-      currentClient = DioNetwork.getClient();
+      currentClient = DioNetwork.getClient(skipLogging: _skipLogging);
       final Response response = await currentClient!.get(
         resolved,
         options: Options(
@@ -420,7 +433,7 @@ class DioDownloader {
       final String resolved = Uri.base.resolve(url).toString();
       // load from network and cache if enabled
       onEvent?.call('isFromNetwork', null);
-      currentClient = DioNetwork.getClient();
+      currentClient = DioNetwork.getClient(skipLogging: _skipLogging);
       final Response response = await currentClient!.download(
         resolved,
         await imageWriter.getCachePathString(
@@ -492,7 +505,7 @@ class DioDownloader {
     try {
       final String resolved = Uri.base.resolve(url).toString();
 
-      currentClient = DioNetwork.getClient();
+      currentClient = DioNetwork.getClient(skipLogging: _skipLogging);
       final Response response = await currentClient!.head(
         resolved,
         options: Options(

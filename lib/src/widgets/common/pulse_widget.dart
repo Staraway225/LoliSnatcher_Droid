@@ -28,7 +28,6 @@ class _PulseWidgetState extends State<PulseWidget> with SingleTickerProviderStat
     super.initState();
 
     _configurePulseAnimation();
-    _fadeController.forward();
   }
 
   void _configurePulseAnimation() {
@@ -46,10 +45,41 @@ class _PulseWidgetState extends State<PulseWidget> with SingleTickerProviderStat
 
     _fadeController.addStatusListener(_statusListener);
 
-    _fadeController.forward();
+    // Previously started unconditionally (and twice). `build` returns the bare
+    // child when disabled, so the ticker kept scheduling frames forever behind a
+    // widget that never showed the animation -- e.g. the viewer's snatch icon,
+    // which passes `enabled: running` and is almost always false.
+    if (widget.enabled) {
+      _fadeController.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PulseWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.duration != oldWidget.duration) {
+      _fadeController.duration = widget.duration ?? const Duration(seconds: 1);
+    }
+
+    if (widget.enabled != oldWidget.enabled) {
+      if (widget.enabled) {
+        _fadeController.forward();
+      } else {
+        // Reset so a later re-enable starts from full opacity, exactly as a
+        // fresh mount would. Safe because _statusListener bails when disabled;
+        // otherwise landing on `dismissed` would immediately call forward().
+        _fadeController
+          ..stop()
+          ..value = 0;
+      }
+    }
   }
 
   void _statusListener(AnimationStatus status) {
+    if (!widget.enabled) {
+      return;
+    }
     if (status == AnimationStatus.completed) {
       _fadeController.reverse();
     }

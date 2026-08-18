@@ -503,10 +503,27 @@ class ServiceHandler {
     return NetworkInterface.list(type: InternetAddressType.IPv4);
   }
 
+  static bool? _lastVolumeButtonsState;
+
+  /// Memoised because the video position listener calls this on every tick with
+  /// an always-identical argument, i.e. several JNI round trips per second for
+  /// the whole time a video is open.
   static void setVolumeButtons(bool setActive) {
-    if (Platform.isAndroid) {
-      platform.invokeMethod('setVolumeButtons', {'setActive': setActive});
+    if (!Platform.isAndroid) {
+      return;
     }
+    if (_lastVolumeButtonsState == setActive) {
+      return;
+    }
+    _lastVolumeButtonsState = setActive;
+    platform.invokeMethod('setVolumeButtons', {'setActive': setActive});
+  }
+
+  /// Drops the memoised value so the next [setVolumeButtons] call always reaches
+  /// the platform. Call this whenever the native side may have lost its state,
+  /// e.g. after an Android Activity recreation.
+  static void resetVolumeButtonsCache() {
+    _lastVolumeButtonsState = null;
   }
 
   static Future<Uint8List?> makeVidThumb(String videoURL) async {

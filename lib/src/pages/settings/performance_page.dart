@@ -32,6 +32,7 @@ class _PerformancePageState extends State<PerformancePage> {
   final TextEditingController preloadAmountController = TextEditingController();
   final TextEditingController preloadSizeController = TextEditingController();
   final TextEditingController preloadHeightController = TextEditingController();
+  final TextEditingController scrollCacheLimitController = TextEditingController();
 
   @override
   void initState() {
@@ -45,6 +46,7 @@ class _PerformancePageState extends State<PerformancePage> {
     preloadAmountController.text = settingsHandler.preloadCount.toString();
     preloadSizeController.text = settingsHandler.preloadSizeLimit.toString();
     preloadHeightController.text = settingsHandler.preloadHeight.toString();
+    scrollCacheLimitController.text = settingsHandler.scrollCachePageLimit.toString();
     autoPlayEnabled = settingsHandler.autoPlayEnabled;
     disableVideo = settingsHandler.disableVideo;
   }
@@ -58,6 +60,7 @@ class _PerformancePageState extends State<PerformancePage> {
     settingsHandler.preloadCount = (int.tryParse(preloadAmountController.text) ?? 1).clamp(0, 4);
     settingsHandler.preloadSizeLimit = (double.tryParse(preloadSizeController.text) ?? 0.2).clamp(0, double.infinity);
     settingsHandler.preloadHeight = (int.tryParse(preloadHeightController.text) ?? (4096 * 4)).clamp(0, 2_000_000_000);
+    settingsHandler.scrollCachePageLimit = (int.tryParse(scrollCacheLimitController.text) ?? 50).clamp(0, 1000);
     settingsHandler.autoPlayEnabled = autoPlayEnabled;
     settingsHandler.disableVideo = disableVideo;
 
@@ -85,6 +88,7 @@ class _PerformancePageState extends State<PerformancePage> {
                   context.loc.settings.viewer.preloadAmount,
                   context.loc.settings.viewer.preloadSizeLimit,
                   context.loc.settings.viewer.preloadHeightLimit,
+                  context.loc.settings.performance.scrollCacheLimit,
                   context.loc.settings.interface.dontScaleImages,
                   context.loc.settings.performance.autoplayVideos,
                 ].map((s) => Text('- $s')),
@@ -118,6 +122,7 @@ class _PerformancePageState extends State<PerformancePage> {
     preloadAmountController.dispose();
     preloadSizeController.dispose();
     preloadHeightController.dispose();
+    scrollCacheLimitController.dispose();
     super.dispose();
   }
 
@@ -147,6 +152,7 @@ class _PerformancePageState extends State<PerformancePage> {
                         preloadAmountController.text = '0';
                         preloadSizeController.text = '0.2';
                         preloadHeightController.text = '8192';
+                        scrollCacheLimitController.text = '20';
                         autoPlayEnabled = false;
                         settingsHandler.disableImageScaling = false;
                       }
@@ -278,6 +284,40 @@ class _PerformancePageState extends State<PerformancePage> {
                       min: settingsHandler.map['preloadSizeLimit']!['lowerLimit']!,
                       max: settingsHandler.map['preloadSizeLimit']!['upperLimit']!,
                     );
+                  } else {
+                    return null;
+                  }
+                },
+              ),
+              SettingsTextInput(
+                controller: scrollCacheLimitController,
+                title: context.loc.settings.performance.scrollCacheLimit,
+                subtitle: Text(context.loc.settings.performance.scrollCacheLimitSubtitle),
+                inputType: TextInputType.number,
+                inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly],
+                resetText: () => settingsHandler.map['scrollCachePageLimit']!['default']!.toString(),
+                numberButtons: true,
+                numberStep: 5,
+                numberMin: 0,
+                numberMax: 1000,
+                trailingIcon: IconButton(
+                  icon: const Icon(Icons.help_outline),
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (context) => SettingsDialog(
+                      title: Text(context.loc.settings.performance.scrollCacheLimit),
+                      contentItems: [
+                        Text(context.loc.settings.performance.scrollCacheLimitHelp),
+                      ],
+                    ),
+                  ),
+                ),
+                validator: (String? value) {
+                  final int? parse = int.tryParse(value ?? '');
+                  if (value == null || value.isEmpty) {
+                    return context.loc.validationErrors.required;
+                  } else if (parse == null) {
+                    return context.loc.validationErrors.invalidNumericValue;
                   } else {
                     return null;
                   }

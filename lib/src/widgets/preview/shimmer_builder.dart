@@ -18,7 +18,7 @@ class ShimmerWrap extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Shimmer(
-      enabled: true,
+      enabled: enabled,
       linearGradient: _shimmerGradient(
         Color.lerp(colorScheme.surface, colorScheme.onSurface, 0.15)!,
         Color.lerp(colorScheme.onSurface, colorScheme.surface, 0.75)!,
@@ -124,62 +124,62 @@ class Shimmer extends StatefulWidget {
 class ShimmerState extends State<Shimmer> with SingleTickerProviderStateMixin {
   late AnimationController _shimmerController;
 
-  int activeChildren = 0;
+  /// Registered shimmering children, tracked by identity.
+  ///
+  /// This used to be a plain `int` incremented from a descendant's
+  /// [State.didChangeDependencies], which fires on every inherited-widget change
+  /// (theme, MediaQuery, orientation, keyboard insets) with no matching
+  /// decrement. The count therefore only ever climbed, `stop()` could never
+  /// fire, and the controller repeated for the life of the app -- forcing a
+  /// frame every vsync plus a `ShaderMask` (a `saveLayer`) per shimmering tile.
+  /// Set membership makes registration idempotent, so that drift is impossible.
+  final Set<State<ShimmerLoading>> _activeChildren = Set<State<ShimmerLoading>>.identity();
+
+  int get activeChildren => _activeChildren.length;
 
   @override
   void initState() {
     super.initState();
 
     _shimmerController = AnimationController.unbounded(vsync: this);
-    if (widget.enabled) {
-      _shimmerController.repeat(
-        min: -0.5,
-        max: 1.5,
-        period: const Duration(milliseconds: 1000),
-      );
-    }
+    _syncController();
   }
 
   @override
   void didUpdateWidget(Shimmer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.enabled != oldWidget.enabled) {
-      if (widget.enabled) {
-        play();
-      } else {
-        stop();
+      _syncController();
+    }
+  }
+
+  void registerChild(State<ShimmerLoading> child) {
+    if (_activeChildren.add(child)) {
+      _syncController();
+    }
+  }
+
+  void unregisterChild(State<ShimmerLoading> child) {
+    if (_activeChildren.remove(child)) {
+      _syncController();
+    }
+  }
+
+  /// The single place the ticker starts or stops. Both conditions must hold:
+  /// the widget is enabled, and something is actually shimmering.
+  void _syncController() {
+    final bool shouldAnimate = widget.enabled && _activeChildren.isNotEmpty;
+    if (shouldAnimate) {
+      if (!_shimmerController.isAnimating) {
+        _shimmerController.repeat(
+          min: -0.5,
+          max: 1.5,
+          period: const Duration(milliseconds: 1000),
+        );
       }
-    }
-  }
-
-  void activateChild() {
-    activeChildren++;
-    play();
-  }
-
-  void play() {
-    if (!_shimmerController.isAnimating) {
-      _shimmerController.repeat(
-        min: -0.5,
-        max: 1.5,
-        period: const Duration(milliseconds: 1000),
-      );
-    }
-  }
-
-  void stop() {
-    if (activeChildren <= 0 && _shimmerController.isAnimating) {
+    } else if (_shimmerController.isAnimating) {
       _shimmerController.stop();
     }
-  }
-
-  void deactivateChild() {
-    if (activeChildren <= 0) {
-      return;
-    }
-
-    activeChildren--;
-    stop();
   }
 
   @override
@@ -262,20 +262,35 @@ class _ShimmerLoadingState extends State<ShimmerLoading> {
   final ValueNotifier<int> _shimmerUpdateIndex = ValueNotifier(0);
 
   ShimmerState? _shimmerState;
+  bool _registered = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final bool isChanged = _shimmerState != Shimmer.of(context);
-    _shimmerState = Shimmer.of(context);
-    _shimmerChanges?.removeListener(_onShimmerChange);
-    _shimmerChanges = _shimmerState?.shimmerChanges;
-    _shimmerChanges?.addListener(_onShimmerChange);
-    _shimmerState?.activateChild();
+    final ShimmerState? newState = Shimmer.of(context);
+    final bool isChanged = !identical(_shimmerState, newState);
+
+    // Only tear down and re-subscribe when the ancestor actually changed.
+    // This runs on every inherited-widget change, so doing it unconditionally
+    // is what used to leak a registration per theme/orientation/inset change.
+    if (isChanged) {
+      if (_registered) {
+        _shimmerState?.unregisterChild(this);
+        _registered = false;
+      }
+      _shimmerChanges?.removeListener(_onShimmerChange);
+      _shimmerState = newState;
+      _shimmerChanges = _shimmerState?.shimmerChanges;
+      _shimmerChanges?.addListener(_onShimmerChange);
+    }
+
+    _syncRegistration();
 
     if (isChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _shimmerUpdateIndex.value++;
+        if (mounted) {
+          _shimmerUpdateIndex.value++;
+        }
       });
     }
   }
@@ -284,19 +299,32 @@ class _ShimmerLoadingState extends State<ShimmerLoading> {
   void didUpdateWidget(covariant ShimmerLoading oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isLoading != oldWidget.isLoading) {
-      if (widget.isLoading) {
-        _shimmerState?.activateChild();
-      } else {
-        _shimmerState?.deactivateChild();
-      }
+      _syncRegistration();
       _shimmerUpdateIndex.value++;
     }
   }
 
+  /// Registration tracks [ShimmerLoading.isLoading] exactly, and is idempotent.
+  void _syncRegistration() {
+    if (widget.isLoading == _registered) {
+      return;
+    }
+    if (widget.isLoading) {
+      _shimmerState?.registerChild(this);
+    } else {
+      _shimmerState?.unregisterChild(this);
+    }
+    _registered = widget.isLoading;
+  }
+
   @override
   void dispose() {
-    _shimmerState?.deactivateChild();
+    if (_registered) {
+      _shimmerState?.unregisterChild(this);
+      _registered = false;
+    }
     _shimmerChanges?.removeListener(_onShimmerChange);
+    _shimmerUpdateIndex.dispose();
     super.dispose();
   }
 

@@ -19,6 +19,18 @@ import 'package:lolisnatcher/src/utils/logger.dart';
 class MergebooruHandler extends BooruHandler {
   MergebooruHandler(super.booru, super.limit);
 
+  /// Merge tabs opt out of the sliding-window trim.
+  ///
+  /// Trimming the parent [fetched] alone would free nothing: each sub-handler
+  /// keeps its own full `fetched`, `fetchedMap` holds a second set of
+  /// references and `_itemSources` is an identity map that strongly retains
+  /// every item ever merged. The dedupe helpers below also scan the parent
+  /// `fetched` linearly, so a trimmed parent would start re-admitting old
+  /// duplicates at the tail.
+  // TODO trim booruHandlers[i].fetched, fetchedMap and _itemSources together
+  @override
+  bool get supportsTrim => false;
+
   List<Booru> booruList = [];
   List<BooruHandler> booruHandlers = [];
   List<int> booruHandlerPageNums = [];

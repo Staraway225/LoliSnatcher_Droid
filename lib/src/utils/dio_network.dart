@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:talker_dio_logger/talker_dio_logger.dart';
 
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
@@ -35,13 +36,54 @@ class DioNetwork {
     // dio.options.receiveTimeout = Duration(seconds: 30);
     // dio.options.sendTimeout = Duration(seconds: 10);
 
-    if (!skipLogging) {
-      dio.interceptors.add(Logger.dioInterceptor!);
-      dio.interceptors.add(settingsHandler.alice.getDioInterceptor());
+    // The HTTP inspectors are debug tools and are gated accordingly. Alice's
+    // only entry point is the dev overlay, which itself only exists when
+    // `isDebug` is true, so in release these interceptors were unreachable yet
+    // still retained every request and response for the life of the process.
+    if (!skipLogging && settingsHandler.isDebug.value) {
+      final TalkerDioLogger? talkerInterceptor = Logger.dioInterceptor;
+      if (talkerInterceptor != null) {
+        dio.interceptors.add(talkerInterceptor);
+      }
+      dio.interceptors.add(
+        _BinarySafeInterceptor(settingsHandler.alice.getDioInterceptor()),
+      );
     }
     cookieInterceptor(dio);
 
     return dio;
+  }
+
+  /// Long-lived clients, keyed by the axes that actually change their setup.
+  ///
+  /// Every `getClient` call builds a fresh [Dio], and so a fresh `HttpClient`
+  /// with its own connection pool, which is then closed after a single request.
+  /// On a booru grid that means a full TCP + TLS handshake per thumbnail.
+  /// Reusing a client lets the pool do its job.
+  ///
+  /// Only safe for callers that do **not** mutate the returned client's
+  /// interceptors -- anything adding a captcha interceptor must keep its own
+  /// instance, and must not close a shared one.
+  static final Map<String, Dio> _sharedClients = <String, Dio>{};
+
+  static Dio getSharedClient({
+    String? baseUrl,
+    bool skipLogging = false,
+  }) {
+    final String key = '${baseUrl ?? ''}|$skipLogging|${SettingsHandler.instance.isDebug.value}';
+    return _sharedClients.putIfAbsent(
+      key,
+      () => getClient(baseUrl: baseUrl, skipLogging: skipLogging),
+    );
+  }
+
+  /// Drops every pooled client. Call after anything that changes how clients are
+  /// built: proxy settings, certificate handling, or the debug logging toggle.
+  static void resetSharedClients() {
+    for (final Dio client in _sharedClients.values) {
+      client.close(force: true);
+    }
+    _sharedClients.clear();
   }
 
   static Options mergeOptions(Options? options, Map<String, dynamic>? headers) {
@@ -207,7 +249,9 @@ class DioNetwork {
     void Function(int, int)? onReceiveProgress,
     Dio Function(Dio)? customInterceptor,
   }) async {
-    final client = customInterceptor != null ? customInterceptor(getClient()) : getClient();
+    // A custom interceptor mutates the client, so those keep a private instance.
+    final bool reusable = customInterceptor == null;
+    final client = reusable ? getSharedClient() : customInterceptor(getClient());
     final urlAndQuery = separateUrlAndQueryParams(url, queryParameters);
 
     final res = await client.get(
@@ -217,7 +261,9 @@ class DioNetwork {
       cancelToken: cancelToken,
       onReceiveProgress: onReceiveProgress,
     );
-    client.close();
+    if (!reusable) {
+      client.close();
+    }
     return res;
   }
 
@@ -232,7 +278,9 @@ class DioNetwork {
     void Function(int, int)? onSendProgress,
     Dio Function(Dio)? customInterceptor,
   }) async {
-    final client = customInterceptor != null ? customInterceptor(getClient()) : getClient();
+    // A custom interceptor mutates the client, so those keep a private instance.
+    final bool reusable = customInterceptor == null;
+    final client = reusable ? getSharedClient() : customInterceptor(getClient());
     final urlAndQuery = separateUrlAndQueryParams(url, queryParameters);
 
     final res = await client.post(
@@ -244,7 +292,9 @@ class DioNetwork {
       onReceiveProgress: onReceiveProgress,
       onSendProgress: onSendProgress,
     );
-    client.close();
+    if (!reusable) {
+      client.close();
+    }
     return res;
   }
 
@@ -259,7 +309,9 @@ class DioNetwork {
     void Function(int, int)? onSendProgress,
     Dio Function(Dio)? customInterceptor,
   }) async {
-    final client = customInterceptor != null ? customInterceptor(getClient()) : getClient();
+    // A custom interceptor mutates the client, so those keep a private instance.
+    final bool reusable = customInterceptor == null;
+    final client = reusable ? getSharedClient() : customInterceptor(getClient());
     final urlAndQuery = separateUrlAndQueryParams(url, queryParameters);
 
     final res = await client.head(
@@ -269,7 +321,9 @@ class DioNetwork {
       options: mergeOptions(options, headers),
       cancelToken: cancelToken,
     );
-    client.close();
+    if (!reusable) {
+      client.close();
+    }
     return res;
   }
 
@@ -285,7 +339,9 @@ class DioNetwork {
     bool deleteOnError = true,
     Dio Function(Dio)? customInterceptor,
   }) async {
-    final client = customInterceptor != null ? customInterceptor(getClient()) : getClient();
+    // A custom interceptor mutates the client, so those keep a private instance.
+    final bool reusable = customInterceptor == null;
+    final client = reusable ? getSharedClient() : customInterceptor(getClient());
     final urlAndQuery = separateUrlAndQueryParams(url, queryParameters);
 
     final res = await client.download(
@@ -298,7 +354,9 @@ class DioNetwork {
       onReceiveProgress: onReceiveProgress,
       deleteOnError: deleteOnError,
     );
-    client.close();
+    if (!reusable) {
+      client.close();
+    }
     return res;
   }
 
@@ -318,7 +376,9 @@ class DioNetwork {
     bool deleteOnError = true,
     Dio Function(Dio)? customInterceptor,
   }) async {
-    final client = customInterceptor != null ? customInterceptor(getClient()) : getClient();
+    // A custom interceptor mutates the client, so those keep a private instance.
+    final bool reusable = customInterceptor == null;
+    final client = reusable ? getSharedClient() : customInterceptor(getClient());
     final urlAndQuery = separateUrlAndQueryParams(url, queryParameters);
 
     options = DioMixin.checkOptions('GET', mergeOptions(options, headers));
@@ -338,7 +398,9 @@ class DioNetwork {
       }
       rethrow;
     } finally {
-      client.close();
+      if (!reusable) {
+        client.close();
+      }
     }
 
     response.headers = Headers.fromMap(response.data!.headers);
@@ -692,5 +754,58 @@ class DioNetwork {
     }
 
     return message;
+  }
+}
+
+/// Wraps Alice's interceptor so binary payloads are never handed to it.
+///
+/// `AliceDioInterceptor.onResponse` stores `response.data` on the call it
+/// retains forever, and sizes it with `utf8.encode(response.data.toString())`.
+/// For a `ResponseType.bytes` download that means a string of ~4 chars per byte
+/// plus a UTF-8 encode of the same, allocated purely to produce an integer.
+///
+/// The real [Response] is never mutated: Alice is handed a copy carrying a short
+/// placeholder, and the untouched original continues down the interceptor chain.
+/// The copy reuses the same [RequestOptions] instance because Alice keys calls by
+/// `response.requestOptions.hashCode`.
+class _BinarySafeInterceptor extends Interceptor {
+  _BinarySafeInterceptor(this._inner);
+
+  final Interceptor _inner;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    _inner.onRequest(options, handler);
+  }
+
+  @override
+  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
+    final dynamic data = response.data;
+    if (data is! List<int>) {
+      _inner.onResponse(response, handler);
+      return;
+    }
+
+    _inner.onResponse(
+      Response<dynamic>(
+        requestOptions: response.requestOptions,
+        data: '<${data.length} bytes>',
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        redirects: response.redirects,
+        extra: response.extra,
+      ),
+      // A fresh handler is inert: its `_processNextInQueue` is null and nothing
+      // awaits its completer, so `next()` on it is a no-op.
+      ResponseInterceptorHandler(),
+    );
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    _inner.onError(err, handler);
   }
 }

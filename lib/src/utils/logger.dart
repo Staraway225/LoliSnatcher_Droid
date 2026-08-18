@@ -28,7 +28,9 @@ class Logger {
     _talkerInstance ??= Talker(
       settings: TalkerSettings(
         enabled: true,
-        maxHistoryItems: 100000,
+        // Was 100000. Each record can carry a 10k-char message, so the old
+        // ceiling was hundreds of MB of retained log history.
+        maxHistoryItems: 2000,
         useConsoleLogs: true,
         useHistory: true,
       ),
@@ -221,7 +223,14 @@ enum LogLevel {
 class _DailyFileLogger {
   static const _retention = Duration(days: 14);
   static const _maxFileBytes = 25 * 1024 * 1024;
-  static const _writeDelay = Duration(seconds: 1000);
+  // Was `Duration(seconds: 1000)` (~16.7 minutes), which read as a
+  // milliseconds/seconds typo: buffered lines sat in RAM that whole time, so a
+  // crash lost exactly the logs worth having.
+  static const _writeDelay = Duration(milliseconds: 1000);
+
+  /// Flush early once the buffer grows past this, so memory stays bounded
+  /// regardless of the debounce.
+  static const _maxBufferedLines = 200;
   static final _ansiEscape = RegExp(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])');
   static final _talkerHeader = RegExp(r'^\[([^\]]+)\]\s*\|\s*[^|]+\|\s*');
 
@@ -342,10 +351,16 @@ class _DailyFileLogger {
         text: '[${now.toIso8601String()}][$source] $cleanMessage\n',
       ),
     );
-    _flushTimer ??= Timer(_writeDelay, () {
+    if (_buffer.length >= _maxBufferedLines) {
+      _flushTimer?.cancel();
       _flushTimer = null;
       unawaited(_queueBufferedWrite());
-    });
+    } else {
+      _flushTimer ??= Timer(_writeDelay, () {
+        _flushTimer = null;
+        unawaited(_queueBufferedWrite());
+      });
+    }
   }
 
   void _rememberAppMessage(String message) {

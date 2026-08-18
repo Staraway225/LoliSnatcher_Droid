@@ -823,7 +823,10 @@
             "lowPerformanceModeDialogSetsOptimal": "Sets optimal settings for these options (you can change them separately later):",
             "autoplayVideos": "Autoplay videos",
             "disableVideos": "Disable videos",
-            "disableVideosHelp": "Useful on low end devices that crash when trying to load videos. Gives options to view video in external player or browser instead."
+            "disableVideosHelp": "Useful on low end devices that crash when trying to load videos. Gives options to view video in external player or browser instead.",
+            "scrollCacheLimit": "Scroll cache page limit",
+            "scrollCacheLimitSubtitle": "0 = unlimited",
+            "scrollCacheLimitHelp": "How many pages of results to keep in memory per tab while scrolling. Once the limit is passed, the oldest pages are dropped and the view is shifted to compensate, so nothing moves on screen. Keeps memory flat no matter how far you scroll."
         },
         "cache": {
             "title": "Snatching and caching",

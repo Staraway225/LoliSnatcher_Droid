@@ -48,7 +48,6 @@ List<List<String>> decodeBackupString(String input) {
 class SearchHandler {
   SearchHandler() {
     _volumeStreamController = Platform.isAndroid ? StreamController.broadcast() : null;
-    _scrollStream = StreamController.broadcast();
     _rootVolumeListener = volumeKeyChannel?.receiveBroadcastStream().listen((event) {
       _volumeStreamController?.sink.add(event);
     });
@@ -270,15 +269,13 @@ class SearchHandler {
   // grid scroll controller
   AutoScrollController gridScrollController =
       AutoScrollController(); // will be overwritten on the first render because there is hasClients check
-  RxDouble scrollOffset = 0.0.obs;
-  // stream that will notify it's listeners about scroll events of the grid controller
-  StreamController<ScrollNotification>? _scrollStream;
-  Stream<ScrollNotification>? get scrollStream => _scrollStream?.stream;
-
-  void sendToScrollStream(ScrollNotification notification) {
-    _scrollStream?.sink.add(notification);
-
-    scrollOffset.value = gridScrollController.offset;
+  /// Records the current tab's scroll position on every scroll notification.
+  ///
+  /// This used to also push each notification into a broadcast stream and write
+  /// an `RxDouble scrollOffset`. Neither had a single consumer anywhere in the
+  /// app, so both were pure per-frame waste while scrolling: a sink add plus a
+  /// microtask, every frame.
+  void recordScrollPosition() {
     currentTab.scrollPosition = gridScrollController.offset;
   }
 
@@ -682,7 +679,6 @@ class SearchHandler {
   void setRootRestate(VoidCallback? rootSetStateCallback) => rootRestate = rootSetStateCallback;
 
   void dispose() {
-    _scrollStream?.close();
     _rootVolumeListener?.cancel();
     _volumeStreamController?.close();
   }
@@ -1184,10 +1180,40 @@ class SearchHandler {
     }
   }
 
-  Future<void> backupTabs() async {
+  /// Cheap fingerprint of everything [generateBackupJson] serialises.
+  ///
+  /// Comparing this is more robust than hunting down every mutation site for a
+  /// dirty flag, where a single missed one silently costs the user their tabs
+  /// after a crash.
+  String get _tabsSignature {
+    final StringBuffer buffer = StringBuffer()
+      ..write(tabs.length)
+      ..write('#')
+      ..write(index.value)
+      ..write('#');
+    for (final SearchTab tab in tabs) {
+      buffer
+        ..write(tab.selectedBooru.value.name ?? '')
+        ..write('|')
+        ..write(tab.tags)
+        ..write(';');
+    }
+    return buffer.toString();
+  }
+
+  String? _lastBackupSignature;
+
+  Future<void> backupTabs({bool force = false}) async {
     if (!canBackup.value) {
       return;
     }
+
+    final String signature = _tabsSignature;
+    if (!force && signature == _lastBackupSignature) {
+      // Nothing to persist: skip regenerating the JSON and writing SQLite.
+      return;
+    }
+    _lastBackupSignature = signature;
 
     final String? backupString = generateBackupJson();
     final SettingsHandler settingsHandler = SettingsHandler.instance;
@@ -1230,6 +1256,10 @@ class SearchTab {
   late final BooruHandler booruHandler;
 
   double scrollPosition = 0;
+
+  /// Sliding-window scroll-cache bookkeeping for this tab's grid.
+  final GridTrimState gridTrim = GridTrimState();
+
   RxList<BooruItem> selected = RxList<BooruItem>.from([]);
   final OrderedSelectionIndex<BooruItem> _selectedIndices = OrderedSelectionIndex();
 
@@ -1334,6 +1364,57 @@ class SearchTab {
   @override
   String toString() {
     return 'tags: $tags selectedBooru: $selectedBooru booruHandler: $booruHandler';
+  }
+}
+
+/// Per-tab state for the sliding-window scroll cache.
+///
+/// The masonry grid needs the column frontier left behind by evicted items in
+/// order to keep survivors in their original columns. That frontier is only
+/// valid for the geometry that produced it, so any change to the grid shape
+/// discards it and the layout simply re-flattens -- which is what already
+/// happened on rotation before this existed.
+class GridTrimState {
+  int generation = -1;
+  int columnCount = 0;
+  double crossAxisExtent = 0;
+  bool staggered = false;
+  List<double>? baseColumnOffsets;
+
+  /// Diagnostics: how much has been dropped from this tab so far.
+  int trimmedItems = 0;
+  double trimmedExtent = 0;
+
+  /// Drops the frontier unless it still matches the grid it was computed for.
+  /// Returns true when the state was reset.
+  bool invalidateIfChanged({
+    required int generation,
+    required int columnCount,
+    required double crossAxisExtent,
+    required bool staggered,
+  }) {
+    if (this.generation == generation &&
+        this.columnCount == columnCount &&
+        this.crossAxisExtent == crossAxisExtent &&
+        this.staggered == staggered) {
+      return false;
+    }
+    this.generation = generation;
+    this.columnCount = columnCount;
+    this.crossAxisExtent = crossAxisExtent;
+    this.staggered = staggered;
+    baseColumnOffsets = null;
+    return true;
+  }
+
+  void reset() {
+    generation = -1;
+    columnCount = 0;
+    crossAxisExtent = 0;
+    staggered = false;
+    baseColumnOffsets = null;
+    trimmedItems = 0;
+    trimmedExtent = 0;
   }
 }
 

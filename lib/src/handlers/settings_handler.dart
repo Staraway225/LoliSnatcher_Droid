@@ -144,6 +144,10 @@ class SettingsHandler {
   int landscapeColumns = 4;
   int preloadCount = 1;
   int preloadHeight = 4096 * 4;
+
+  /// Maximum number of fetched pages kept in memory per tab while scrolling.
+  /// 0 disables the limit.
+  int scrollCachePageLimit = 50;
   int snatchCooldown = 250;
   int volumeButtonsScrollSpeed = 200;
   int galleryAutoScrollTime = 4000;
@@ -233,6 +237,7 @@ class SettingsHandler {
   // list of setting names which shouldnt be synced with other devices
   List<String> deviceSpecificSettings = [
     'shitDevice',
+    'scrollCachePageLimit',
     'disableVideo',
     'thumbnailCache',
     'mediaCache',
@@ -484,6 +489,15 @@ class SettingsHandler {
       'default': 4096 * 4,
       'step': 1024,
       'upperLimit': 2_000_000_000,
+      'lowerLimit': 0,
+    },
+    'scrollCachePageLimit': {
+      'type': 'int',
+      'default': 50,
+      'step': 5,
+      // 0 is a meaningful value (unlimited), so the lower limit must allow it
+      // or validateValue would coerce it back to the default.
+      'upperLimit': 1000,
       'lowerLimit': 0,
     },
     'snatchCooldown': {
@@ -1082,6 +1096,8 @@ class SettingsHandler {
         return preloadCount;
       case 'preloadHeight':
         return preloadHeight;
+      case 'scrollCachePageLimit':
+        return scrollCachePageLimit;
       case 'snatchCooldown':
         return snatchCooldown;
       case 'galleryBarPosition':
@@ -1310,6 +1326,9 @@ class SettingsHandler {
         break;
       case 'preloadHeight':
         preloadHeight = validatedValue;
+        break;
+      case 'scrollCachePageLimit':
+        scrollCachePageLimit = validatedValue;
         break;
       case 'snatchCooldown':
         snatchCooldown = validatedValue;

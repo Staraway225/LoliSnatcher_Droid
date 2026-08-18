@@ -547,10 +547,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
         // record time when user left the app
         localAuthHandler.onLeave();
+        // Persist now rather than waiting for the next timer tick: this makes
+        // tab restore strictly more reliable than the old unconditional writes.
+        unawaited(searchHandler.backupTabs());
         break;
       case AppLifecycleState.resumed:
         // check if app needs to be locked when user returns to the app
         localAuthHandler.onReturn();
+        // the native side may have been torn down while we were away, so don't
+        // let the memoised volume-button state suppress the next real call
+        ServiceHandler.resetVolumeButtonsCache();
         break;
     }
   }

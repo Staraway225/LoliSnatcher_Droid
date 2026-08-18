@@ -759,7 +759,13 @@ class VideoViewerState extends State<VideoViewer> {
     await Future.wait([videoController.value!.initialize()]);
     if (!_isCurrentLoad(loadGeneration)) return;
 
-    if (settingsHandler.autoPlayEnabled) {
+    // The isViewed guard is what the comment further up in this file already
+    // claims happens ("videos will still autoplay when in view"). Without it a
+    // preloaded neighbouring page starts decoding and playing audio on every
+    // swipe, and is only stopped later, reactively, by updateVideoState.
+    // Read the notifier, not widget.isViewed, so a page change that landed while
+    // initialize() was in flight is respected.
+    if (settingsHandler.autoPlayEnabled && isViewed.value) {
       await videoController.value!.play();
     }
 

@@ -74,6 +74,10 @@ class _LoliControlsState extends State<LoliControls> {
   double longTapReverseSpeed = _longTapMinReverseSpeed;
   int pointerCount = 0;
   bool speedSetManually = false;
+
+  /// Last playback speed this widget asserted on the controller. Reset to null
+  /// at every genuine speed change so the workaround above re-asserts.
+  double? _lastAssertedSpeed;
   TapDownDetails? _doubleTapInfo;
   int _lastDoubleTapAmount = 0;
   int _lastDoubleTapSide = 0;
@@ -581,6 +585,7 @@ class _LoliControlsState extends State<LoliControls> {
         );
 
         if (chosenSpeed != null) {
+          _lastAssertedSpeed = null;
           await controller.setPlaybackSpeed(chosenSpeed);
           setState(() {
             speedSetManually = chosenSpeed != 1;
@@ -596,6 +601,7 @@ class _LoliControlsState extends State<LoliControls> {
           return;
         }
 
+        _lastAssertedSpeed = null;
         await controller.setPlaybackSpeed(1);
 
         if (_latestValue.isPlaying) {
@@ -774,7 +780,16 @@ class _LoliControlsState extends State<LoliControls> {
         if (pointerCount == 0 && !speedSetManually) {
           // reset speed when there are no fingers detected and it wasn't set through dialog
           // required because video controller wrongly reports that speed is reset and speed may not reset properly if it was changed during buffering
-          controller.setPlaybackSpeed(1);
+          //
+          // Guarded on what *we* last asserted rather than on
+          // controller.value.playbackSpeed, since the whole premise of this
+          // workaround is that the controller's own report is unreliable.
+          // Without the guard this fires a platform call twice a second for the
+          // entire time a video is open.
+          if (_lastAssertedSpeed != 1) {
+            _lastAssertedSpeed = 1;
+            controller.setPlaybackSpeed(1);
+          }
         }
       },
     );
@@ -1014,6 +1029,7 @@ class _LoliControlsState extends State<LoliControls> {
       longTapPlaybackSpeed = _longTapBasePlaybackSpeed;
       _stopLongTapReverse();
       _doubleTapExtraMessage = '${longTapPlaybackSpeed.toStringAsFixed(1)}x';
+      _lastAssertedSpeed = null;
       controller.setPlaybackSpeed(longTapPlaybackSpeed);
       _lastDoubleTapSide = 1;
     });
@@ -1068,11 +1084,13 @@ class _LoliControlsState extends State<LoliControls> {
         _longTapSpeedChangeDebounce,
         () {
           try {
+            _lastAssertedSpeed = null;
             controller.setPlaybackSpeed(longTapPlaybackSpeed);
           } catch (_) {
             // future proofing - setPlaybackSpeed may throw an exception on ios
             setState(() {
               longTapPlaybackSpeed = _longTapBasePlaybackSpeed;
+              _lastAssertedSpeed = null;
               controller.setPlaybackSpeed(_longTapBasePlaybackSpeed);
             });
           }

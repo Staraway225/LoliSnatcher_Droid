@@ -1,89 +1,60 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 // code from https://stackoverflow.com/questions/56853554/show-timer-progress-on-a-circularprogressindicator-in-flutter
 
+/// Schedules a timed run and reports when it starts and stops.
+///
+/// It used to also drive the *animation*, ticking a `Timer.periodic` at
+/// `duration / 250` -- about 16ms, or 62 setState calls a second, for the entire
+/// time a slideshow was running. The fill is now driven by an
+/// `AnimationController` in `RestartableProgressIndicator`, which is vsync-paced
+/// and repaints without rebuilding.
 class TimedProgressController {
   TimedProgressController({
     required this.duration,
-  }) : tickPeriod = _calculateTickPeriod(duration);
-  static const double smoothnessConstant = 250;
+  });
 
   final Duration duration;
-  final Duration tickPeriod;
 
   Timer? _timer;
-  Timer? _periodicTimer;
 
-  Stream<void> get progressStream => _progressController.stream;
-  final StreamController<void> _progressController = StreamController<void>.broadcast();
+  /// Bumped every time a new run begins. Listeners restart their animation.
+  final ValueNotifier<int> runTick = ValueNotifier<int>(0);
 
-  double get progress => _progress;
-  double _progress = 0;
+  /// Whether a run is currently in progress.
+  final ValueNotifier<bool> isRunning = ValueNotifier<bool>(false);
 
   void start() {
+    _cancelTimers();
+    isRunning.value = true;
+    runTick.value++;
     _timer = Timer(duration, () {
       _cancelTimers();
-      _setProgressAndNotify(0);
+      isRunning.value = false;
     });
-
-    _periodicTimer = Timer.periodic(
-      tickPeriod,
-      (Timer timer) {
-        final double progress = _calculateProgress(timer);
-        _setProgressAndNotify(progress);
-      },
-    );
   }
 
   void stop() {
     _cancelTimers();
-    _setProgressAndNotify(0);
+    isRunning.value = false;
   }
 
   void restart() {
-    _cancelTimers();
     start();
   }
 
   Future<void> dispose() async {
-    await _cancelStreams();
     _cancelTimers();
-  }
-
-  double _calculateProgress(Timer timer) {
-    final double progress = timer.tick / smoothnessConstant;
-
-    if (progress > 1) {
-      return 1;
-    }
-    if (progress < 0) {
-      return 0;
-    }
-    return progress;
-  }
-
-  void _setProgressAndNotify(double value) {
-    _progress = value;
-    _progressController.add(null);
-  }
-
-  Future<void> _cancelStreams() async {
-    if (!_progressController.isClosed) {
-      await _progressController.close();
-    }
+    runTick.dispose();
+    isRunning.dispose();
   }
 
   void _cancelTimers() {
     if (_timer?.isActive == true) {
       _timer?.cancel();
     }
-    if (_periodicTimer?.isActive == true) {
-      _periodicTimer?.cancel();
-    }
-  }
-
-  static Duration _calculateTickPeriod(Duration duration) {
-    final double tickPeriodMs = duration.inMilliseconds / smoothnessConstant;
-    return Duration(milliseconds: tickPeriodMs.toInt());
+    _timer = null;
   }
 }

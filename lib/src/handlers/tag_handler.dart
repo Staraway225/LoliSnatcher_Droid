@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -45,6 +46,31 @@ class TagHandler {
   final Map<String, Tag> _tagMap = {};
   Map<String, Tag> get tagMap => _tagMap; // TODO read only (or is it?)
 
+  /// Bumped whenever the tag map changes.
+  ///
+  /// Tag *types* are fetched asynchronously long after the tags themselves
+  /// appear, which is the only reason several widgets used to poll on a timer.
+  /// This is the event they were really waiting for.
+  ///
+  /// Notifications are coalesced onto a microtask: [putTag] is called in tight
+  /// loops (a page of items can carry thousands of tags), and notifying per call
+  /// would be worse than the polling it replaces.
+  final ValueNotifier<int> tagsRevision = ValueNotifier<int>(0);
+  int _pendingRevision = 0;
+  bool _revisionNotifyScheduled = false;
+
+  void _bumpTagsRevision() {
+    _pendingRevision++;
+    if (_revisionNotifyScheduled) {
+      return;
+    }
+    _revisionNotifyScheduled = true;
+    scheduleMicrotask(() {
+      _revisionNotifyScheduled = false;
+      tagsRevision.value = _pendingRevision;
+    });
+  }
+
   ValueNotifier<List<UntypedCollection>> untypedQueue = ValueNotifier([]);
   ValueNotifier<bool> tagFetchActive = ValueNotifier(false);
   bool tagSaveActive = false;
@@ -55,6 +81,7 @@ class TagHandler {
 
   void dispose() {
     untypedQueue.removeListener(queueListener);
+    tagsRevision.dispose();
   }
 
   bool hasTag(String tagString) {
@@ -96,6 +123,7 @@ class TagHandler {
       }
     }
     _tagMap[tag.fullString] = tag;
+    _bumpTagsRevision();
 
     if (dbEnabled && useDB && SearchHandler.instance.canBackup.value) {
       await SettingsHandler.instance.dbHandler.updateTagsFromObjects([tag]);
@@ -317,11 +345,14 @@ class TagHandler {
   Future<void> saveTags() async {
     tagSaveActive = true;
     final SettingsHandler settings = SettingsHandler.instance;
-    await getStoragePermission();
     prevLength = tagMap.entries.length;
     if (settings.dbEnabled) {
       //await settings.dbHandler.updateTagsFromObjects(toList());
     } else {
+      // Only the file-writing branch needs this. It used to run unconditionally,
+      // which meant a permission_handler platform round trip every 30s for a
+      // branch that does nothing under the default dbEnabled: true.
+      await getStoragePermission();
       try {
         if (settings.path == '') {
           await settings.setConfigDir();

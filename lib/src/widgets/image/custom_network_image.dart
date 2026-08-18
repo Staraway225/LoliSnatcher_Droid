@@ -126,9 +126,14 @@ class NetworkImageLoader {
     }
 
     // --- Download Logic ---
-    final client = DioNetwork.getClient(
-      skipLogging: !SettingsHandler.instance.useImageLogging.value,
-    );
+    // The captcha interceptor mutates the client, so that path keeps a private
+    // instance. Everything else shares a pooled client, which is what lets
+    // consecutive thumbnails reuse a connection instead of paying a fresh
+    // TCP + TLS handshake each.
+    final bool skipLogging = !SettingsHandler.instance.useImageLogging.value;
+    final Dio client = withCaptchaCheck
+        ? DioNetwork.getClient(skipLogging: skipLogging)
+        : DioNetwork.getSharedClient(skipLogging: skipLogging);
     if (withCaptchaCheck) {
       DioNetwork.captchaInterceptor(
         client,
@@ -188,7 +193,10 @@ class NetworkImageLoader {
       } catch (_) {}
       rethrow;
     } finally {
-      client.close();
+      // Never close the pooled client -- other thumbnails are using it.
+      if (withCaptchaCheck) {
+        client.close();
+      }
     }
 
     if (!Tools.isGoodResponse(response)) {

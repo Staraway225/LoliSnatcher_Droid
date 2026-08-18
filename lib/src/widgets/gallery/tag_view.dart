@@ -109,7 +109,7 @@ class _TagViewState extends State<TagView> {
 
   bool? detailsExpanded;
 
-  Timer? sortTimer;
+  bool _tagsRevisionListening = false;
 
   @override
   void initState() {
@@ -130,10 +130,7 @@ class _TagViewState extends State<TagView> {
       await Future.delayed(const Duration(seconds: 3));
       if (mounted) {
         parseSortGroupTagsWithoutCache();
-        sortTimer = Timer.periodic(
-          const Duration(seconds: 5),
-          (_) => parseSortGroupTagsWithoutCache(),
-        );
+        _listenToTagsRevision();
       }
     });
   }
@@ -203,11 +200,7 @@ class _TagViewState extends State<TagView> {
             await Future.delayed(const Duration(seconds: 3));
             if (mounted) {
               parseSortGroupTagsWithoutCache();
-              sortTimer?.cancel();
-              sortTimer = Timer.periodic(
-                const Duration(seconds: 5),
-                (_) => parseSortGroupTagsWithoutCache(),
-              );
+              _listenToTagsRevision();
             }
           });
         },
@@ -226,7 +219,11 @@ class _TagViewState extends State<TagView> {
   @override
   void dispose() {
     cancelToken?.cancel();
-    sortTimer?.cancel();
+    if (_tagsRevisionListening) {
+      tagHandler.tagsRevision.removeListener(_onTagsRevision);
+      _tagsRevisionListening = false;
+    }
+    Debounce.cancel('tag_view_sort_${identityHashCode(this)}');
     searchHandler.searchTextController.removeListener(parseSortGroupTagsWithoutCache);
     searchController.dispose();
     searchFocusNode.removeListener(searchFocusListener);
@@ -379,6 +376,31 @@ class _TagViewState extends State<TagView> {
 
   void parseSortGroupTagsWithoutCache() {
     parseSortGroupTags(updateCache: false);
+  }
+
+  /// React to tag types actually arriving instead of re-sorting the whole tag
+  /// list every 5 seconds for as long as the drawer exists.
+  ///
+  /// Debounced because a page of items can resolve thousands of tags in quick
+  /// succession, and each resolution bumps the revision.
+  void _listenToTagsRevision() {
+    if (_tagsRevisionListening) {
+      return;
+    }
+    _tagsRevisionListening = true;
+    tagHandler.tagsRevision.addListener(_onTagsRevision);
+  }
+
+  void _onTagsRevision() {
+    Debounce.debounce(
+      tag: 'tag_view_sort_${identityHashCode(this)}',
+      callback: () {
+        if (mounted) {
+          parseSortGroupTagsWithoutCache();
+        }
+      },
+      duration: const Duration(milliseconds: 600),
+    );
   }
 
   Future<void> parseSortGroupTags({

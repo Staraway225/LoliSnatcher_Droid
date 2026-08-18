@@ -6,6 +6,7 @@ import 'package:http_proxy/http_proxy.dart';
 
 import 'package:lolisnatcher/src/data/settings/proxy_type.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
+import 'package:lolisnatcher/src/utils/dio_network.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
 
@@ -13,6 +14,10 @@ String systemProxyAddress = '';
 bool addedRootCert = false;
 
 Future<void> initProxy() async {
+  // Pooled Dio clients hold HttpClient instances created under the *previous*
+  // overrides, so they would keep using the old proxy and certificate policy.
+  DioNetwork.resetSharedClients();
+
   final settingsHandler = SettingsHandler.instance;
   final proxyType = settingsHandler.proxyType;
 

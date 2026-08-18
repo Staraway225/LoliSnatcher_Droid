@@ -17,6 +17,7 @@ class ThumbnailCardBuild extends StatelessWidget {
     required this.item,
     required this.handler,
     required this.scrollController,
+    this.selectionOf,
     this.isHighlighted = false,
     this.selectable = true,
     this.selectedIndex,
@@ -32,6 +33,15 @@ class ThumbnailCardBuild extends StatelessWidget {
   final BooruItem item;
   final BooruHandler handler;
   final AutoScrollController scrollController;
+
+  /// Observes this tile's selection index and highlight state.
+  ///
+  /// When provided, the reactive read happens *inside* this widget and wraps
+  /// only the card itself, so a selection change or a viewer page change no
+  /// longer rebuilds the AutoScrollTag, Material, Stack and snatch-progress
+  /// overlay of every visible tile.
+  final ({int? selectedIndex, bool isHighlighted, bool hasSelected}) Function()? selectionOf;
+
   final bool isHighlighted;
   final bool selectable;
   final int? selectedIndex;
@@ -45,8 +55,6 @@ class ThumbnailCardBuild extends StatelessWidget {
   Widget build(BuildContext context) {
     final snatchHandler = SnatchHandler.instance;
 
-    final bool isSelected = selectable && selectedIndex != null;
-    final bool showHighlightBorder = isHighlighted || isSelected;
     final double defaultBorderWidth = max(2, MediaQuery.devicePixelRatioOf(context));
 
     return AutoScrollTag(
@@ -60,35 +68,26 @@ class ThumbnailCardBuild extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            DecoratedBox(
-              position: DecorationPosition.foreground,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: showHighlightBorder
-                    ? Border.all(
-                        color: Theme.of(context).colorScheme.secondary,
-                        width: defaultBorderWidth,
-                      )
-                    : null,
+            if (selectionOf != null)
+              Obx(() {
+                final selection = selectionOf!();
+                return _buildCard(
+                  context,
+                  defaultBorderWidth: defaultBorderWidth,
+                  selectedIndex: selection.selectedIndex,
+                  isHighlighted: selection.isHighlighted,
+                  hasSelected: selection.hasSelected,
+                );
+              })
+            else
+              _buildCard(
+                context,
+                defaultBorderWidth: defaultBorderWidth,
+                selectedIndex: selectedIndex,
+                isHighlighted: isHighlighted,
+                // Legacy call sites already gate onSelected themselves.
+                hasSelected: true,
               ),
-              child: InkWell(
-                enableFeedback: true,
-                borderRadius: BorderRadius.circular(4),
-                highlightColor: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.4),
-                splashColor: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.2),
-                onTap: onTap == null ? null : () => onTap?.call(index),
-                onDoubleTap: onDoubleTap == null ? null : () => onDoubleTap?.call(index),
-                onLongPress: onLongPress == null ? null : () => onLongPress?.call(index),
-                onSecondaryTap: onSecondaryTap == null ? null : () => onSecondaryTap?.call(index),
-                child: ThumbnailBuild(
-                  item: item,
-                  handler: handler,
-                  selectable: selectable,
-                  selectedIndex: isSelected ? selectedIndex : null,
-                  onSelected: onSelected == null ? null : () => onSelected!(index),
-                ),
-              ),
-            ),
             //
             Positioned.fill(
               child: Obx(() {
@@ -113,6 +112,49 @@ class ThumbnailCardBuild extends StatelessWidget {
               }),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCard(
+    BuildContext context, {
+    required double defaultBorderWidth,
+    required int? selectedIndex,
+    required bool isHighlighted,
+    required bool hasSelected,
+  }) {
+    final bool isSelected = selectable && selectedIndex != null;
+    final bool showHighlightBorder = isHighlighted || isSelected;
+
+    return DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: showHighlightBorder
+            ? Border.all(
+                color: Theme.of(context).colorScheme.secondary,
+                width: defaultBorderWidth,
+              )
+            : null,
+      ),
+      child: InkWell(
+        enableFeedback: true,
+        borderRadius: BorderRadius.circular(4),
+        highlightColor: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.4),
+        splashColor: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.2),
+        onTap: onTap == null ? null : () => onTap?.call(index),
+        onDoubleTap: onDoubleTap == null ? null : () => onDoubleTap?.call(index),
+        onLongPress: onLongPress == null ? null : () => onLongPress?.call(index),
+        onSecondaryTap: onSecondaryTap == null ? null : () => onSecondaryTap?.call(index),
+        child: ThumbnailBuild(
+          item: item,
+          handler: handler,
+          selectable: selectable,
+          selectedIndex: isSelected ? selectedIndex : null,
+          // Preserves the original behaviour: the select affordance only shows
+          // once selection mode is active.
+          onSelected: (onSelected == null || !hasSelected) ? null : () => onSelected!(index),
         ),
       ),
     );

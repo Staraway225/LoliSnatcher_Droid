@@ -32,12 +32,11 @@ class DownloadsHandler extends BooruHandler {
 
     // if tags are different than previous tags, reset fetched
     if (prevTags != tags) {
-      fetched.value = [];
-      totalCount.value = 0;
+      resetFetched();
     }
 
-    // get amount of items before fetching
-    final int length = fetched.length;
+    // count of appended items before fetching
+    final int appendedBefore = appendedItemsCount;
 
     final List<BooruItem> newItems = [];
     try {
@@ -64,7 +63,7 @@ class DownloadsHandler extends BooruHandler {
     await afterParseResponse(newItems);
     prevTags = tags;
 
-    if (fetched.isEmpty || fetched.length == length) {
+    if (fetched.isEmpty || appendedItemsCount == appendedBefore) {
       Logger.Inst().log(
         'dbhandler dbLocked',
         'DownloadsHandler',

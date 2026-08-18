@@ -9,6 +9,7 @@ import 'package:scroll_to_index/scroll_to_index.dart';
 
 import 'package:lolisnatcher/src/data/booru_item.dart';
 import 'package:lolisnatcher/src/handlers/navigation_handler.dart';
+import 'package:lolisnatcher/src/handlers/scroll_cache_trimmer.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
@@ -55,9 +56,23 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
   int viewedItemCleanupCount = 0;
   final Set<BooruItem> viewedItems = {};
 
+  /// Identifies the grid sliver so the trimmer can read its SliverConstraints
+  /// directly (exact crossAxisExtent and cacheOrigin, correct in desktop mode
+  /// where the grid does not span the window).
+  final GlobalKey _gridSliverKey = GlobalKey();
+  late final ScrollCacheTrimmer _trimmer;
+
   @override
   void initState() {
     super.initState();
+
+    _trimmer = ScrollCacheTrimmer(
+      gridSliverKey: _gridSliverKey,
+      isStaggered: () => isStaggered,
+      // Read the live orientation, not `currentOrientation`, which is only
+      // refreshed on certain rebuilds. Matches what the grid builders use.
+      columnCountOf: () => context.isPortrait ? settingsHandler.portraitColumns : settingsHandler.landscapeColumns,
+    );
 
     // listen to current tab change to restore the scroll value
     searchHandler.index.addListener(tabIndexListener);
@@ -156,6 +171,12 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
   void isLoadingListener() {
     if (!searchHandler.isLoading.value) {
       afterSearch();
+      // A page can land after the scroll already settled, in which case no
+      // further ScrollEndNotification is coming.
+      if (searchHandler.gridScrollController.hasClients &&
+          !searchHandler.gridScrollController.position.isScrollingNotifier.value) {
+        _trimmer.maybeTrim(nowMs: DateTime.now().millisecondsSinceEpoch);
+      }
     }
   }
 
@@ -450,102 +471,123 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
       });
     }
 
-    return Stack(
-      alignment: Alignment.bottomCenter,
-      children: [
-        NotificationListener<ScrollNotification>(
-          child: Scrollbar(
-            controller: searchHandler.gridScrollController,
-            interactive: true,
-            thickness: 8,
-            thumbVisibility: true,
-            scrollbarOrientation: settingsHandler.handSide.value.isLeft
-                ? ScrollbarOrientation.left
-                : ScrollbarOrientation.right,
-            child: RefreshIndicator(
-              triggerMode: RefreshIndicatorTriggerMode.anywhere,
-              displacement: 40,
-              edgeOffset: MediaQuery.paddingOf(context).top + MainAppBar.height,
-              strokeWidth: 4,
-              color: Theme.of(context).colorScheme.secondary,
-              onRefresh: () => searchHandler.searchAction(
-                searchHandler.currentTabOrNull?.tags ?? '',
-                null,
-              ),
-              child: Stack(
-                children: [
-                  ValueListenableBuilder(
-                    valueListenable: isActive,
-                    builder: (context, isActive, child) {
-                      return ShimmerWrap(
-                        enabled: isActive && !SettingsHandler.instance.shitDevice,
-                        child: child ?? const SizedBox.shrink(),
-                      );
-                    },
-                    child: Obx(() {
-                      final currentFetched = searchHandler.currentFetchedOrNull;
-                      final currentTab = searchHandler.currentTabOrNull;
-                      final bool isLoadingAndNoItems =
-                          searchHandler.isLoading.value && (currentFetched?.isEmpty ?? true);
+    // One backdrop capture shared by the app bar, the bottom bar and the search
+    // bar. Without this each BackdropFilter snapshots and blurs the scrolling
+    // grid beneath it separately, every frame it moves. The filters do not
+    // overlap each other (top bar vs. a non-overlapping bottom Column), which is
+    // the condition for sharing a backdrop key.
+    return BackdropGroup(
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          NotificationListener<ScrollNotification>(
+            child: Scrollbar(
+              controller: searchHandler.gridScrollController,
+              interactive: true,
+              thickness: 8,
+              thumbVisibility: true,
+              scrollbarOrientation: settingsHandler.handSide.value.isLeft
+                  ? ScrollbarOrientation.left
+                  : ScrollbarOrientation.right,
+              child: RefreshIndicator(
+                triggerMode: RefreshIndicatorTriggerMode.anywhere,
+                displacement: 40,
+                edgeOffset: MediaQuery.paddingOf(context).top + MainAppBar.height,
+                strokeWidth: 4,
+                color: Theme.of(context).colorScheme.secondary,
+                onRefresh: () => searchHandler.searchAction(
+                  searchHandler.currentTabOrNull?.tags ?? '',
+                  null,
+                ),
+                child: Stack(
+                  children: [
+                    ValueListenableBuilder(
+                      valueListenable: isActive,
+                      builder: (context, isActive, child) {
+                        return ShimmerWrap(
+                          enabled: isActive && !SettingsHandler.instance.shitDevice,
+                          child: child ?? const SizedBox.shrink(),
+                        );
+                      },
+                      child: Obx(() {
+                        final currentFetched = searchHandler.currentFetchedOrNull;
+                        final currentTab = searchHandler.currentTabOrNull;
+                        final bool isLoadingAndNoItems =
+                            searchHandler.isLoading.value && (currentFetched?.isEmpty ?? true);
 
-                      if (isLoadingAndNoItems) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          // reset scroll position if in loading state
-                          searchHandler.gridScrollController.jumpTo(0);
-                        });
-                      }
+                        if (isLoadingAndNoItems) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            // reset scroll position if in loading state
+                            searchHandler.gridScrollController.jumpTo(0);
+                          });
+                        }
 
-                      // If loading just finished but content doesn't fill the viewport,
-                      // the NotificationListener won't fire (no scroll possible), so trigger next page here with a small delay.
-                      if (!searchHandler.isLoading.value && (currentFetched?.isNotEmpty ?? false)) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) async {
-                          if (searchHandler.gridScrollController.hasClients && !searchHandler.isLoading.value) {
-                            final pos = searchHandler.gridScrollController.position;
-                            final bool screenNotFilled = pos.extentBefore == 0 && pos.extentAfter == 0;
-                            if (screenNotFilled) {
-                              await Future.delayed(const Duration(milliseconds: 500));
-                              unawaited(searchHandler.runSearch());
+                        // If loading just finished but content doesn't fill the viewport,
+                        // the NotificationListener won't fire (no scroll possible), so trigger next page here with a small delay.
+                        if (!searchHandler.isLoading.value && (currentFetched?.isNotEmpty ?? false)) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) async {
+                            if (searchHandler.gridScrollController.hasClients && !searchHandler.isLoading.value) {
+                              final pos = searchHandler.gridScrollController.position;
+                              final bool screenNotFilled = pos.extentBefore == 0 && pos.extentAfter == 0;
+                              if (screenNotFilled) {
+                                await Future.delayed(const Duration(milliseconds: 500));
+                                unawaited(searchHandler.runSearch());
+                              }
                             }
-                          }
-                        });
-                      }
+                          });
+                        }
 
-                      return CustomScrollView(
-                        key: ValueKey('CustomScrollView-${searchHandler.currentTabId}'),
-                        controller: searchHandler.gridScrollController,
-                        physics: isLoadingAndNoItems
-                            ? const NeverScrollableScrollPhysics()
-                            : AlwaysScrollableScrollPhysics(
-                                parent: ScrollConfiguration.of(context).getScrollPhysics(context),
-                              ),
-                        shrinkWrap: false,
-                        scrollCacheExtent: settingsHandler.shitDevice ? const .viewport(0.5) : const .viewport(1),
-                        slivers: [
-                          const MainAppBar(),
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(10, 16, 10, 180),
-                            sliver: Builder(
-                              builder: (context) {
-                                if (isLoadingAndNoItems) {
-                                  if (settingsHandler.shitDevice) {
-                                    return const SliverToBoxAdapter(
-                                      child: Center(
-                                        child: CircularProgressIndicator(),
+                        return CustomScrollView(
+                          key: ValueKey('CustomScrollView-${searchHandler.currentTabId}'),
+                          controller: searchHandler.gridScrollController,
+                          physics: isLoadingAndNoItems
+                              ? const NeverScrollableScrollPhysics()
+                              : AlwaysScrollableScrollPhysics(
+                                  parent: ScrollConfiguration.of(context).getScrollPhysics(context),
+                                ),
+                          shrinkWrap: false,
+                          scrollCacheExtent: settingsHandler.shitDevice ? const .viewport(0.5) : const .viewport(1),
+                          slivers: [
+                            const MainAppBar(),
+                            SliverPadding(
+                              padding: const EdgeInsets.fromLTRB(10, 16, 10, 180),
+                              sliver: Builder(
+                                key: _gridSliverKey,
+                                builder: (context) {
+                                  if (isLoadingAndNoItems) {
+                                    if (settingsHandler.shitDevice) {
+                                      return const SliverToBoxAdapter(
+                                        child: Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      );
+                                    }
+
+                                    return const ThumbnailsShimmerList();
+                                  }
+
+                                  if (currentTab == null) {
+                                    return const SliverToBoxAdapter(child: SizedBox.shrink());
+                                  }
+
+                                  if (isStaggered) {
+                                    return Obx(
+                                      () => StaggeredBuilder(
+                                        key: ValueKey('StaggeredBuilder-${searchHandler.currentTabId}'),
+                                        tab: currentTab,
+                                        scrollController: searchHandler.gridScrollController,
+                                        onTap: onTap,
+                                        onDoubleTap: onDoubleTap,
+                                        onLongPress: onLongPress,
+                                        onSecondaryTap: (i) => onSecondaryTap(i, context),
+                                        onSelected: onLongPress,
                                       ),
                                     );
                                   }
 
-                                  return const ThumbnailsShimmerList();
-                                }
-
-                                if (currentTab == null) {
-                                  return const SliverToBoxAdapter(child: SizedBox.shrink());
-                                }
-
-                                if (isStaggered) {
                                   return Obx(
-                                    () => StaggeredBuilder(
-                                      key: ValueKey('StaggeredBuilder-${searchHandler.currentTabId}'),
+                                    () => GridBuilder(
+                                      key: ValueKey('GridBuilder-${searchHandler.currentTabId}'),
                                       tab: currentTab,
                                       scrollController: searchHandler.gridScrollController,
                                       onTap: onTap,
@@ -555,105 +597,96 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
                                       onSelected: onLongPress,
                                     ),
                                   );
-                                }
-
-                                return Obx(
-                                  () => GridBuilder(
-                                    key: ValueKey('GridBuilder-${searchHandler.currentTabId}'),
-                                    tab: currentTab,
-                                    scrollController: searchHandler.gridScrollController,
-                                    onTap: onTap,
-                                    onDoubleTap: onDoubleTap,
-                                    onLongPress: onLongPress,
-                                    onSecondaryTap: (i) => onSecondaryTap(i, context),
-                                    onSelected: onLongPress,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
-                  ),
-                  Positioned(
-                    bottom: MediaQuery.viewPaddingOf(context).bottom + 120,
-                    right: settingsHandler.scrollGridButtonsPosition.isRight
-                        ? MediaQuery.sizeOf(context).width * 0.07
-                        : null,
-                    left: settingsHandler.scrollGridButtonsPosition.isLeft
-                        ? MediaQuery.sizeOf(context).width * 0.07
-                        : null,
-                    child: Obx(() {
-                      final bool isLoadingAndNoItems =
-                          searchHandler.isLoading.value && (searchHandler.currentFetchedOrNull?.isEmpty ?? true);
-
-                      return AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        child:
-                            (isLoadingAndNoItems ||
-                                settingsHandler.scrollGridButtonsPosition.isDisabled ||
-                                settingsHandler.appMode.value.isDesktop == true)
-                            ? const SizedBox.shrink()
-                            : WaterfallScrollButtons(
-                                onTap: (bool forward) {
-                                  if (forward) {
-                                    navigationHandler.floatingHeaderKey.currentState?.hide();
-                                    navigationHandler.bottomBarKey.currentState?.hide();
-                                  } else {
-                                    navigationHandler.floatingHeaderKey.currentState?.show();
-                                    navigationHandler.bottomBarKey.currentState?.show();
-                                  }
-                                  // TODO increase cacheExtent (to load future thumbnails faster) for duration of scrolling + few seconds after + keep resetting timer if didn't exceed debounce between presses?
                                 },
                               ),
-                      );
-                    }),
-                  ),
-                ],
+                            ),
+                          ],
+                        );
+                      }),
+                    ),
+                    Positioned(
+                      bottom: MediaQuery.viewPaddingOf(context).bottom + 120,
+                      right: settingsHandler.scrollGridButtonsPosition.isRight
+                          ? MediaQuery.sizeOf(context).width * 0.07
+                          : null,
+                      left: settingsHandler.scrollGridButtonsPosition.isLeft
+                          ? MediaQuery.sizeOf(context).width * 0.07
+                          : null,
+                      child: Obx(() {
+                        final bool isLoadingAndNoItems =
+                            searchHandler.isLoading.value && (searchHandler.currentFetchedOrNull?.isEmpty ?? true);
+
+                        return AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child:
+                              (isLoadingAndNoItems ||
+                                  settingsHandler.scrollGridButtonsPosition.isDisabled ||
+                                  settingsHandler.appMode.value.isDesktop == true)
+                              ? const SizedBox.shrink()
+                              : WaterfallScrollButtons(
+                                  onTap: (bool forward) {
+                                    if (forward) {
+                                      navigationHandler.floatingHeaderKey.currentState?.hide();
+                                      navigationHandler.bottomBarKey.currentState?.hide();
+                                    } else {
+                                      navigationHandler.floatingHeaderKey.currentState?.show();
+                                      navigationHandler.bottomBarKey.currentState?.show();
+                                    }
+                                    // TODO increase cacheExtent (to load future thumbnails faster) for duration of scrolling + few seconds after + keep resetting timer if didn't exceed debounce between presses?
+                                  },
+                                ),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          onNotification: (notif) {
-            if (notif is ScrollUpdateNotification || notif is OverscrollNotification) {
-              syncFloatingBarsWithScroll(notif);
-              searchHandler.sendToScrollStream(notif);
+            onNotification: (notif) {
+              if (notif is ScrollUpdateNotification || notif is OverscrollNotification) {
+                syncFloatingBarsWithScroll(notif);
+                searchHandler.recordScrollPosition();
 
-              // print('SCROLL NOTIFICATION');
-              // print(searchHandler.gridScrollController.position.maxScrollExtent);
-              // print(notif.metrics); // pixels before viewport, in viewport, after viewport
+                // print('SCROLL NOTIFICATION');
+                // print(searchHandler.gridScrollController.position.maxScrollExtent);
+                // print(notif.metrics); // pixels before viewport, in viewport, after viewport
 
-              final bool isNotAtStart = notif.metrics.pixels > 0;
-              final bool isAtOrNearEdge =
-                  notif.metrics.atEdge ||
-                  notif.metrics.pixels >
-                      (notif.metrics.maxScrollExtent -
-                          (notif.metrics.extentInside *
-                              2)); // trigger new page when at edge or scroll position is less than 2 viewports
-              final bool isScreenFilled =
-                  notif.metrics.extentBefore != 0 ||
-                  notif.metrics.extentAfter != 0; // for cases when first page doesn't fill the screen
+                final bool isNotAtStart = notif.metrics.pixels > 0;
+                final bool isAtOrNearEdge =
+                    notif.metrics.atEdge ||
+                    notif.metrics.pixels >
+                        (notif.metrics.maxScrollExtent -
+                            (notif.metrics.extentInside *
+                                2)); // trigger new page when at edge or scroll position is less than 2 viewports
+                final bool isScreenFilled =
+                    notif.metrics.extentBefore != 0 ||
+                    notif.metrics.extentAfter != 0; // for cases when first page doesn't fill the screen
 
-              if (!searchHandler.isLoading.value) {
-                if (!isScreenFilled || (isNotAtStart && isAtOrNearEdge)) {
-                  searchHandler.runSearch();
+                if (!searchHandler.isLoading.value) {
+                  if (!isScreenFilled || (isNotAtStart && isAtOrNearEdge)) {
+                    searchHandler.runSearch();
+                  }
                 }
               }
-            }
-            if (notif is ScrollEndNotification) {
-              settleFloatingBarsAfterScroll();
-              searchHandler.sendToScrollStream(notif);
-            }
-            return true;
-          },
-        ),
-        //
-        RepaintBoundary(
-          child: WaterfallBottomBar(
-            key: navigationHandler.bottomBarKey,
+              if (notif is ScrollEndNotification) {
+                settleFloatingBarsAfterScroll();
+                searchHandler.recordScrollPosition();
+                // Only on settle: jumpTo() calls goIdle(), which would kill an
+                // in-flight drag or fling. With the finger off the screen there is
+                // by definition nothing under it to move.
+                _trimmer.maybeTrim(nowMs: DateTime.now().millisecondsSinceEpoch);
+              }
+              return true;
+            },
           ),
-        ),
-      ],
+          //
+          RepaintBoundary(
+            child: WaterfallBottomBar(
+              key: navigationHandler.bottomBarKey,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

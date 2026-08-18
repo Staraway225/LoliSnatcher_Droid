@@ -1,15 +1,13 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import 'package:get/get.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
-import 'package:waterfall_flow/waterfall_flow.dart';
 
 import 'package:lolisnatcher/src/data/booru_item.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/handlers/viewer_handler.dart';
+import 'package:lolisnatcher/src/widgets/preview/masonry_grid_delegate.dart';
 import 'package:lolisnatcher/src/widgets/thumbnail/thumbnail_card_build.dart';
 
 class StaggeredBuilder extends StatelessWidget {
@@ -40,67 +38,60 @@ class StaggeredBuilder extends StatelessWidget {
 
     return ValueListenableBuilder(
       valueListenable: tab.booruHandler.filteredFetched,
-      builder: (context, currentFetched, child) => SliverWaterfallFlow(
-        gridDelegate: SliverWaterfallFlowDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columnCount,
+      builder: (context, currentFetched, child) {
+        // Tile heights come from the layout now, so each cell no longer needs its
+        // own LayoutBuilder (one relayout boundary per tile) or a SizedBox.
+        final MasonrySliverGridDelegate gridDelegate = MasonrySliverGridDelegate(
+          aspects: <MasonryTileAspect>[
+            for (final BooruItem item in currentFetched) (width: item.fileWidth, height: item.fileHeight),
+          ],
+          listToken: Object.hash(identityHashCode(currentFetched), currentFetched.length),
+          columnCount: columnCount,
           mainAxisSpacing: 4,
           crossAxisSpacing: 4,
-        ),
-        delegate: SliverChildBuilderDelegate(
-          addAutomaticKeepAlives: false,
-          addRepaintBoundaries: false, // ThumbnailCardBuild has its own RepaintBoundary
-          childCount: currentFetched.length,
-          (context, index) => LayoutBuilder(
-            builder: (context, constraints) {
+          baseColumnOffsets: tab.gridTrim.baseColumnOffsets,
+        );
+
+        return SliverGrid(
+          gridDelegate: gridDelegate,
+          delegate: MasonryChildBuilderDelegate(
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: false, // ThumbnailCardBuild has its own RepaintBoundary
+            childCount: currentFetched.length,
+            exactExtentFor: (_) => gridDelegate.lastResolvedMaxScrollExtent,
+            (context, index) {
+              if (index >= currentFetched.length) {
+                return null;
+              }
               final BooruItem item = currentFetched[index];
 
-              final double itemMaxWidth = constraints.maxWidth;
-              final double itemMaxHeight = itemMaxWidth * (16 / 9);
-
-              final double? widthData = item.fileWidth;
-              final double? heightData = item.fileHeight;
-
-              final double possibleWidth = itemMaxWidth;
-              double possibleHeight = itemMaxWidth;
-              final bool hasSizeData = heightData != null && widthData != null;
-              if (hasSizeData) {
-                final double aspectRatio = widthData / heightData;
-                possibleHeight = possibleWidth / aspectRatio;
-              }
-              // force to use minimum 100 px and max 60% of screen height
-              possibleHeight = max(min(itemMaxHeight, possibleHeight), 100);
-
-              return SizedBox(
+              return KeyedSubtree(
                 key: ValueKey(item.key),
-                height: possibleHeight,
-                width: possibleWidth,
-                child: Obx(
-                  () {
-                    final bool hasSelected = tab.selected.isNotEmpty && tab.hasSelectedItems;
-                    final selectedIndex = tab.selectedIndexOf(item);
-                    final bool isSelected = selectedIndex != null;
-
-                    return ThumbnailCardBuild(
-                      index: index,
-                      item: item,
-                      handler: tab.booruHandler,
-                      scrollController: scrollController,
-                      isHighlighted: ViewerHandler.instance.current.value?.key == item.key,
-                      selectable: true,
-                      selectedIndex: isSelected ? selectedIndex : null,
-                      onSelected: hasSelected ? onSelected : null,
-                      onTap: onTap,
-                      onDoubleTap: onDoubleTap,
-                      onLongPress: onLongPress,
-                      onSecondaryTap: onSecondaryTap,
-                    );
-                  },
+                // The reactive read lives inside ThumbnailCardBuild now, wrapping
+                // only the card, instead of rebuilding the whole tile for every
+                // visible item on any selection or viewer page change.
+                child: ThumbnailCardBuild(
+                  index: index,
+                  item: item,
+                  handler: tab.booruHandler,
+                  scrollController: scrollController,
+                  selectionOf: () => (
+                    selectedIndex: tab.selectedIndexOf(item),
+                    isHighlighted: ViewerHandler.instance.current.value?.key == item.key,
+                    hasSelected: tab.selected.isNotEmpty && tab.hasSelectedItems,
+                  ),
+                  selectable: true,
+                  onSelected: onSelected,
+                  onTap: onTap,
+                  onDoubleTap: onDoubleTap,
+                  onLongPress: onLongPress,
+                  onSecondaryTap: onSecondaryTap,
                 ),
               );
             },
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

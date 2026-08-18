@@ -115,7 +115,14 @@ class _ThumbnailLoadingState extends State<ThumbnailLoading> {
         curve: Curves.linear,
         opacity: showLoading ? 1 : 0,
         onEnd: updateState,
-        child: buildElement(context, progress),
+        // The two hairline LinearProgressIndicators below are indeterminate
+        // while no Content-Length has arrived, and each drives its own repeating
+        // ticker. Without this they animate at `opacity: 0` for the first 500ms
+        // of every thumbnail -- including cached ones that are never seen.
+        child: TickerMode(
+          enabled: showLoading,
+          child: buildElement(context, progress),
+        ),
       ),
     );
   }

@@ -196,7 +196,11 @@ class _MainAppBarState extends State<MainAppBar> {
         flexibleSpace: settingsHandler.shitDevice
             ? null
             : ClipRect(
-                child: BackdropFilter(
+                // .grouped shares one backdrop capture with the other filters on
+                // this screen (see the BackdropGroup in waterfall_view), instead
+                // of each one snapshotting and blurring the scrolling content
+                // beneath it independently every frame.
+                child: BackdropFilter.grouped(
                   filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
                   child: const SizedBox.expand(
                     child: ColoredBox(

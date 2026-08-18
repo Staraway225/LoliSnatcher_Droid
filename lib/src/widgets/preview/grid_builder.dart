@@ -56,27 +56,27 @@ class GridBuilder extends StatelessWidget {
 
           return GridTile(
             key: ValueKey(item.key),
-            child: Obx(() {
-              final bool hasSelected = tab.selected.isNotEmpty && tab.hasSelectedItems;
-              final selectedIndex = tab.selectedIndexOf(item);
-              final bool isSelected = selectedIndex != null;
-              final bool isHighlighted = ViewerHandler.instance.current.value?.key == item.key;
-
-              return ThumbnailCardBuild(
-                index: index,
-                item: item,
-                handler: tab.booruHandler,
-                scrollController: scrollController,
-                isHighlighted: isHighlighted,
-                selectable: true,
-                selectedIndex: isSelected ? selectedIndex : null,
-                onSelected: hasSelected ? onSelected : null,
-                onTap: onTap,
-                onDoubleTap: onDoubleTap,
-                onLongPress: onLongPress,
-                onSecondaryTap: onSecondaryTap,
-              );
-            }),
+            // The reactive read lives inside ThumbnailCardBuild now, wrapping
+            // only the card. Previously this Obx rebuilt the whole tile -- tag,
+            // Material, Stack and progress overlay included -- for every visible
+            // item whenever anything was selected or the viewer changed page.
+            child: ThumbnailCardBuild(
+              index: index,
+              item: item,
+              handler: tab.booruHandler,
+              scrollController: scrollController,
+              selectionOf: () => (
+                selectedIndex: tab.selectedIndexOf(item),
+                isHighlighted: ViewerHandler.instance.current.value?.key == item.key,
+                hasSelected: tab.selected.isNotEmpty && tab.hasSelectedItems,
+              ),
+              selectable: true,
+              onSelected: onSelected,
+              onTap: onTap,
+              onDoubleTap: onDoubleTap,
+              onLongPress: onLongPress,
+              onSecondaryTap: onSecondaryTap,
+            ),
           );
         },
       ),

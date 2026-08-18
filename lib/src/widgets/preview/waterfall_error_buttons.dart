@@ -195,9 +195,11 @@ class _WaterfallErrorButtonsState extends State<WaterfallErrorButtons> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: BackdropFilter(
+                  // BackdropFilter(enabled: false) still forces a composited
+                  // layer, so omit the widget entirely instead.
+                  child: _maybeBlur(
                     enabled: !settingsHandler.shitDevice,
-                    filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                    sigma: 6,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.end,
@@ -237,9 +239,9 @@ class _WaterfallErrorButtonsState extends State<WaterfallErrorButtons> {
                         bottomRight: Radius.circular(borderRadius),
                       ),
                     ),
-                    child: BackdropFilter(
+                    child: _maybeBlur(
                       enabled: !settingsHandler.shitDevice,
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      sigma: 10,
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -317,4 +319,22 @@ class _WaterfallErrorButtonsState extends State<WaterfallErrorButtons> {
       );
     });
   }
+}
+
+/// A grouped backdrop blur, or nothing at all when disabled.
+///
+/// `BackdropFilter(enabled: false)` still reports `alwaysNeedsCompositing`, so
+/// it keeps a layer boundary even though it performs no blur.
+Widget _maybeBlur({
+  required bool enabled,
+  required double sigma,
+  required Widget child,
+}) {
+  if (!enabled) {
+    return child;
+  }
+  return BackdropFilter.grouped(
+    filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+    child: child,
+  );
 }

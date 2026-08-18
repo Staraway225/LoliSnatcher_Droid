@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import 'package:lolisnatcher/src/widgets/desktop/desktop_scroll.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
+import 'package:lolisnatcher/src/handlers/tag_handler.dart';
 import 'package:lolisnatcher/src/handlers/service_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
@@ -155,9 +155,10 @@ class _MainSearchBarState extends State<MainSearchBar> {
   late final AutoScrollController scrollController;
 
   List<String> tags = [];
+  String _lastTagsSignature = '';
   String? currentTabId = '';
 
-  Timer? periodicUpdateTimer;
+  final TagHandler tagHandler = TagHandler.instance;
 
   @override
   void initState() {
@@ -169,16 +170,14 @@ class _MainSearchBarState extends State<MainSearchBar> {
     currentTabId = searchHandler.currentTabId;
     searchHandler.searchTextController.addListener(onTextChanged);
 
-    // periodically update state, mostly to force re-render of chips in case their type data gets fetched later
-    // TODO cache tags type and compare for updates instead of this?
-    periodicUpdateTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => onTextChanged(),
-    );
+    // Chips need to re-render when a tag's type data arrives, which happens
+    // asynchronously. This used to be a 3s Timer.periodic firing an
+    // unconditional setState forever; now it reacts to the actual event and
+    // only rebuilds when the rendered content would differ.
+    tagHandler.tagsRevision.addListener(onTagsRevisionChanged);
   }
 
   void onTextChanged() {
-    // final tagsBefore = [...tags];
     parseTags();
 
     final String? prevTabId = currentTabId;
@@ -187,14 +186,38 @@ class _MainSearchBarState extends State<MainSearchBar> {
       currentTabId = searchHandler.currentTabId;
     }
 
-    // TODO re-render only if tags or their types have changed
-    // if (listEquals(tagsBefore, tags) == false) {
     setState(() {});
-    // }
+  }
+
+  /// Rebuild only when a tag type that is actually on screen has changed.
+  void onTagsRevisionChanged() {
+    final String signature = _tagsSignature();
+    if (signature == _lastTagsSignature) {
+      return;
+    }
+    _lastTagsSignature = signature;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// Everything the chip row's appearance depends on: the tags themselves and
+  /// the type of each (which drives the chip colour).
+  String _tagsSignature() {
+    final StringBuffer buffer = StringBuffer();
+    for (final String tag in tags) {
+      buffer
+        ..write(tag)
+        ..write(':')
+        ..write(tagHandler.getTag(tag).tagType.name)
+        ..write('|');
+    }
+    return buffer.toString();
   }
 
   void parseTags() {
     tags = searchHandler.searchTextControllerTags;
+    _lastTagsSignature = _tagsSignature();
   }
 
   void scrollToStart() {
@@ -216,7 +239,7 @@ class _MainSearchBarState extends State<MainSearchBar> {
 
   @override
   void dispose() {
-    periodicUpdateTimer?.cancel();
+    tagHandler.tagsRevision.removeListener(onTagsRevisionChanged);
     searchHandler.searchTextController.removeListener(onTextChanged);
     super.dispose();
   }
@@ -225,9 +248,9 @@ class _MainSearchBarState extends State<MainSearchBar> {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
+      child: _maybeBlur(
         enabled: !settingsHandler.shitDevice,
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+        sigma: 6,
         child: Material(
           color: context.theme.colorScheme.surface.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
@@ -394,4 +417,22 @@ class _MainSearchBarState extends State<MainSearchBar> {
       ),
     );
   }
+}
+
+/// A grouped backdrop blur, or nothing at all when disabled.
+///
+/// `BackdropFilter(enabled: false)` still reports `alwaysNeedsCompositing`, so
+/// it keeps a layer boundary even though it performs no blur.
+Widget _maybeBlur({
+  required bool enabled,
+  required double sigma,
+  required Widget child,
+}) {
+  if (!enabled) {
+    return child;
+  }
+  return BackdropFilter.grouped(
+    filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+    child: child,
+  );
 }
