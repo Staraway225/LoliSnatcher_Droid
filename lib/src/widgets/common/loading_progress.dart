@@ -213,6 +213,10 @@ class LoadingProgressTracker {
     });
   }
 
+  /// Tiles currently showing a loading indicator -- a direct proxy for how many
+  /// grid images are in flight.
+  static int get activeTrackerCount => _subscribers.length;
+
   static void _unsubscribe(LoadingProgressTracker tracker) {
     _subscribers.remove(tracker);
     if (_subscribers.isEmpty) {

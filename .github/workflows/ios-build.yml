@@ -6,6 +6,21 @@ name: iOS Build
 
 on:
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: >-
+          release = the normal sideload build.
+          profile = same AOT build plus the VM service, which unlocks the
+          per-widget build/layout/paint attribution the in-app tracer reports.
+          Profile IPAs sideload the same way (no get-task-allow needed), but iOS
+          shows a local-network permission prompt on first launch - it is safe to
+          deny it.
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - profile
 
 jobs:
   ios-build:
@@ -51,8 +66,10 @@ jobs:
         run: sh gen_config.sh
 
       - name: Build unsigned iOS app
+        env:
+          BUILD_MODE: ${{ inputs.build_mode }}
         run: |
-          flutter build ios --release --no-codesign \
+          flutter build ios --"${BUILD_MODE}" --no-codesign \
             --dart-define=LS_IS_STORE=false \
             --dart-define-from-file=./config/secrets.json
 
@@ -135,13 +152,18 @@ jobs:
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
           BUILD_NUMBER: ${{ steps.version_info.outputs.build_number }}
           COMMIT_SHA: ${{ github.sha }}
+          BUILD_MODE: ${{ inputs.build_mode }}
         run: |
           set -euo pipefail
           # The build number only changes on an explicit version bump, so several
           # builds can share one. The short SHA identifies which commit an IPA
           # actually came from.
           SHORT_SHA="${COMMIT_SHA:0:7}"
-          IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_${SHORT_SHA}_unsigned.ipa"
+          # Mode is in the name so a profile IPA can never be mistaken for the
+          # release one when comparing traces.
+          MODE_SUFFIX=""
+          if [ "${BUILD_MODE}" != "release" ]; then MODE_SUFFIX="_${BUILD_MODE}"; fi
+          IPA_NAME="LoliSnatcher_${VERSION_NAME}_${BUILD_NUMBER}_${SHORT_SHA}${MODE_SUFFIX}_unsigned.ipa"
           mkdir -p build/ipa/Payload
           # ditto rather than cp -R: preserves extended attributes and symlinks,
           # which cp can drop and which signature validation depends on.

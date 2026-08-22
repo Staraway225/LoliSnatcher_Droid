@@ -23,6 +23,7 @@ import 'package:lolisnatcher/src/handlers/tag_handler.dart';
 import 'package:lolisnatcher/src/utils/content_policy.dart';
 import 'package:lolisnatcher/src/utils/dio_network.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 
 // TODO better naming for some functions (i.e. Search => getSearch or smth like that)
@@ -630,12 +631,18 @@ abstract class BooruHandler {
   }
 
   Future<void> afterParseResponse(List<BooruItem> newItems) async {
+    final Stopwatch perfWatch = Stopwatch()..start();
     final int lengthBefore = fetched.length;
     fetched.addAll(newItems);
     appendedItemsCount += newItems.length;
     filterAppendedFetched(newItems);
     unawaited(setMultipleTrackedValues(lengthBefore, fetched.length));
     unawaited(populateTagHandler(newItems));
+
+    PerfTracer.recordPageFetch(
+      millis: perfWatch.elapsedMilliseconds,
+      items: newItems.length,
+    );
 
     // TODO
     // notifyAboutFailed();

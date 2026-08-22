@@ -61,8 +61,15 @@ class RequestLimiter {
     _active = max(0, _active - 1);
   }
 
-  @visibleForTesting
+  /// Downloads currently holding a permit. Diagnostics, also read by the perf HUD.
   static int get activeCount => _active;
+
+  /// Downloads waiting on a permit. A rising backlog during a fling means the
+  /// grid is asking for images faster than the network can supply them.
+  static int get queuedCount => _waiting.length;
+
+  /// Hosts currently in a rate-limit backoff.
+  static int get pausedHostCount => _hostPauses.length;
 
   @visibleForTesting
   static void resetForTests() {

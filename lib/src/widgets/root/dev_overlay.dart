@@ -12,6 +12,7 @@ import 'package:lolisnatcher/src/pages/settings/logger_page.dart';
 import 'package:lolisnatcher/src/pages/settings_page.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 
 class OverlayScreen {
   factory OverlayScreen.of(BuildContext context) => OverlayScreen._create(context);
@@ -126,7 +127,7 @@ class __DevOverlayContentState extends State<DevOverlayContent> {
   }
 
   double get totalHeight =>
-      ((btnSize + btnPadding) * (isOpen ? (4 + (kDebugMode ? (PlatformExt.isDesktop ? 2 : 1) : 0)) : 1)) + 2;
+      ((btnSize + btnPadding) * (isOpen ? (5 + (kDebugMode ? (PlatformExt.isDesktop ? 2 : 1) : 0)) : 1)) + 2;
 
   double maxLeft(Size size) => max(0, size.width - btnSize).toDouble();
 
@@ -259,6 +260,21 @@ class __DevOverlayContentState extends State<DevOverlayContent> {
                         'Network',
                         () {
                           settingsHandler.alice.showInspector();
+                        },
+                      ),
+                      //
+                      buildButton(
+                        PerfTracer.isTracing ? Icons.stop_circle : Icons.fiber_manual_record,
+                        PerfTracer.isTracing ? 'Stop' : 'Trace',
+                        () async {
+                          if (PerfTracer.isTracing) {
+                            await PerfTracer.stop();
+                          } else {
+                            await PerfTracer.start();
+                          }
+                          if (mounted) {
+                            setState(() {});
+                          }
                         },
                       ),
                       //

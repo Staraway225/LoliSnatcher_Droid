@@ -50,6 +50,7 @@ import 'package:lolisnatcher/src/utils/content_policy.dart';
 import 'package:lolisnatcher/src/utils/dio_network.dart';
 import 'package:lolisnatcher/src/utils/http_overrides.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 import 'package:lolisnatcher/src/widgets/common/flash_elements.dart';
 import 'package:lolisnatcher/src/widgets/common/settings_widgets.dart';
@@ -202,6 +203,16 @@ class SettingsHandler {
   bool gifsAsThumbnails = false;
   bool desktopListsDrag = false;
   bool captureLogcat = false;
+
+  /// Write a performance trace to Documents/LoliSnatcher/traces while browsing.
+  ///
+  /// Persisted deliberately, unlike the session-only debug toggles above: a long
+  /// trace run must survive a cold launch mid-session.
+  bool perfTraceToFile = false;
+
+  /// Show the live performance HUD. Separate from [perfTraceToFile] so the
+  /// definitive run can be captured without the HUD perturbing it.
+  bool perfTraceHud = false;
   bool showBottomSearchbar = true;
   bool useTopSearchbarInput = false;
   bool showSearchbarQuickActions = false;
@@ -287,6 +298,8 @@ class SettingsHandler {
     'isDebug',
     'desktopListsDrag',
     'captureLogcat',
+    'perfTraceToFile',
+    'perfTraceHud',
     'incognitoKeyboard',
     'appAlias',
     'showBottomSearchbar',
@@ -642,6 +655,14 @@ class SettingsHandler {
       'default': false,
     },
     'captureLogcat': {
+      'type': 'bool',
+      'default': false,
+    },
+    'perfTraceToFile': {
+      'type': 'bool',
+      'default': false,
+    },
+    'perfTraceHud': {
       'type': 'bool',
       'default': false,
     },
@@ -1170,6 +1191,10 @@ class SettingsHandler {
         return desktopListsDrag;
       case 'captureLogcat':
         return captureLogcat;
+      case 'perfTraceToFile':
+        return perfTraceToFile;
+      case 'perfTraceHud':
+        return perfTraceHud;
       case 'cacheDuration':
         return cacheDuration;
       case 'cacheSize':
@@ -1435,6 +1460,12 @@ class SettingsHandler {
         break;
       case 'captureLogcat':
         captureLogcat = validatedValue;
+        break;
+      case 'perfTraceToFile':
+        perfTraceToFile = validatedValue;
+        break;
+      case 'perfTraceHud':
+        perfTraceHud = validatedValue;
         break;
       case 'cacheDuration':
         cacheDuration = validatedValue;
@@ -2422,6 +2453,11 @@ class SettingsHandler {
       await getStoragePermission();
       await loadSettings();
       await Logger.setLogcatCaptureEnabled(captureLogcat);
+      // Resume tracing after a cold launch, so a long run is not silently lost
+      // if the app is killed mid-session.
+      if (perfTraceToFile) {
+        unawaited(PerfTracer.start());
+      }
       await setLocale(locale.value);
     } catch (e, s) {
       Logger.Inst().log(

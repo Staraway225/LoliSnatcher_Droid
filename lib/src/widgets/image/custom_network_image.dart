@@ -15,6 +15,7 @@ import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 
 import 'package:lolisnatcher/src/services/image_writer.dart';
 import 'package:lolisnatcher/src/utils/dio_network.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/utils/request_limiter.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 import 'package:lolisnatcher/src/widgets/image/abstract_custom_network_image.dart' as custom_network_image;
@@ -80,6 +81,7 @@ class NetworkImageLoader {
     required void Function(bool)? onCacheDetected,
     void Function(int, int?)? onReceiveProgress,
   }) async {
+    final Stopwatch perfWatch = Stopwatch()..start();
     final Uri resolved = Uri.base.resolve(url);
     final String cacheFilePath = await ImageWriter().getCachePathString(
       resolved.toString(),
@@ -122,7 +124,13 @@ class NetworkImageLoader {
 
     if (cacheFile != null) {
       try {
-        return await cacheFile.readAsBytes();
+        final Uint8List cached = await cacheFile.readAsBytes();
+        PerfTracer.recordDownload(
+          bytes: cached.length,
+          millis: perfWatch.elapsedMilliseconds,
+          fromCache: true,
+        );
+        return cached;
       } catch (e) {
         cacheFile = null;
       }
@@ -248,7 +256,13 @@ class NetworkImageLoader {
 
         try {
           await _commitCacheFile(tempFile, cacheFilePath);
-          return File(cacheFilePath).readAsBytes();
+          final Uint8List committed = await File(cacheFilePath).readAsBytes();
+          PerfTracer.recordDownload(
+            bytes: committed.length,
+            millis: perfWatch.elapsedMilliseconds,
+            fromCache: false,
+          );
+          return committed;
         } catch (_) {
           try {
             await tempFile.delete();
@@ -447,8 +461,11 @@ class CustomNetworkImage extends ImageProvider<custom_network_image.CustomNetwor
 
       final fixedBytes = await NetworkImageLoader.tryFixGifSpeed(key.url, bytes);
 
+      final Stopwatch decodeWatch = Stopwatch()..start();
       final ui.ImmutableBuffer buffer = await ui.ImmutableBuffer.fromUint8List(fixedBytes);
-      return decode(buffer);
+      final ui.Codec codec = await decode(buffer);
+      PerfTracer.recordDecode(decodeWatch.elapsedMilliseconds);
+      return codec;
     } catch (e) {
       if (onError != null) {
         onError?.call(e);

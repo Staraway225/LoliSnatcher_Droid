@@ -13,6 +13,7 @@ import 'package:lolisnatcher/src/data/history_item.dart';
 import 'package:lolisnatcher/src/data/pinned_tag.dart';
 import 'package:lolisnatcher/src/data/tag.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/utils/tools.dart';
 
 ///////////////////////////////////////////////////////////////
@@ -1154,10 +1155,12 @@ class DBHandler {
     }
 
     // DateTime startTime = DateTime.now();
+    final Stopwatch perfWatch = Stopwatch()..start();
     final List? result = await db?.rawQuery(
       "SELECT fileURL, postURL, isFavourite, isSnatched FROM BooruItem WHERE ${queryParts.join(' OR ')};",
       queryArgs,
     );
+    PerfTracer.recordDbQuery(perfWatch.elapsedMilliseconds);
     // print("Query took ${DateTime.now().difference(startTime).inMilliseconds}ms"); // performance test
 
     if (result != null) {

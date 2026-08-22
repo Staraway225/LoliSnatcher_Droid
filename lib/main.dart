@@ -40,7 +40,9 @@ import 'package:lolisnatcher/src/services/image_writer.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
 import 'package:lolisnatcher/src/widgets/common/settings_widgets.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer_bindings.dart';
 import 'package:lolisnatcher/src/widgets/root/dev_overlay.dart';
+import 'package:lolisnatcher/src/widgets/root/perf_hud.dart';
 import 'package:lolisnatcher/src/widgets/root/image_stats.dart';
 import 'package:lolisnatcher/src/widgets/root/scroll_physics.dart';
 import 'package:lolisnatcher/src/widgets/webview/webview_page.dart';
@@ -56,6 +58,10 @@ void main() async {
   PaintingBinding.instance.imageCache
     ..maximumSize = 400
     ..maximumSizeBytes = 256 << 20;
+
+  // Connects the tracer to the app's existing counters. Installing the providers
+  // is free; nothing is recorded until tracing is actually started.
+  PerfTracerBindings.install();
 
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
@@ -148,6 +154,11 @@ class _MainAppState extends State<MainApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (settingsHandler.isDebug.value) {
         overlayScreen?.insert(const DevOverlayContent(), 'devOverlay');
+        // Separate keyed entry, so the HUD can be toggled without touching the
+        // dev overlay itself.
+        if (settingsHandler.perfTraceHud) {
+          overlayScreen?.insert(const PerfHud(), 'perfHud');
+        }
       }
     });
   }
@@ -155,7 +166,16 @@ class _MainAppState extends State<MainApp> {
   void removeOverlays() {
     if (!settingsHandler.isDebug.value) {
       overlayScreen?.remove('devOverlay');
+      overlayScreen?.remove('perfHud');
+    } else if (!settingsHandler.perfTraceHud) {
+      overlayScreen?.remove('perfHud');
     }
+  }
+
+  /// Called after the HUD setting changes so it appears/disappears immediately.
+  void refreshOverlays() {
+    createOverlays();
+    removeOverlays();
   }
 
   void devOverlayListener() {

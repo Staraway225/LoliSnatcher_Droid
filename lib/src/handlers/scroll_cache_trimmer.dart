@@ -6,6 +6,7 @@ import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/handlers/viewer_handler.dart';
 import 'package:lolisnatcher/src/utils/grid_layout_math.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/widgets/preview/masonry_grid_delegate.dart';
 
 /// Enforces the sliding-window scroll cache.
@@ -326,6 +327,7 @@ class ScrollCacheTrimmer {
     tab.gridTrim
       ..trimmedItems += removed
       ..trimmedExtent += delta;
+    PerfTracer.recordTrim(removed: removed, extent: delta);
     _lastTrimAtMs = nowMs;
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show timeDilation;
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
@@ -18,6 +20,7 @@ import 'package:lolisnatcher/src/utils/clipboard.dart';
 import 'package:lolisnatcher/src/utils/content_policy.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/utils/logger.dart';
+import 'package:lolisnatcher/src/utils/perf_tracer.dart';
 import 'package:lolisnatcher/src/widgets/common/cancel_button.dart';
 import 'package:lolisnatcher/src/widgets/common/flash_elements.dart';
 import 'package:lolisnatcher/src/widgets/common/settings_widgets.dart';
@@ -51,6 +54,71 @@ class _DebugPageState extends State<DebugPage> {
 
   Future<void> _onPopInvoked(_, _) async {
     await settingsHandler.saveSettings(restate: true);
+  }
+
+  Future<void> _setPerfTraceToFile(bool enabled) async {
+    setState(() {
+      settingsHandler.perfTraceToFile = enabled;
+    });
+    if (enabled) {
+      final File? file = await PerfTracer.start();
+      if (mounted) {
+        FlashElements.showSnackbar(
+          context: context,
+          title: Text(file == null ? 'Failed to start trace' : 'Tracing started'),
+          content: Text(file == null ? 'Could not open the trace file' : file.uri.pathSegments.last),
+          leadingIcon: file == null ? Icons.error_outline : Icons.fiber_manual_record,
+          leadingIconColor: file == null ? Colors.red : Colors.green,
+        );
+      }
+    } else {
+      final File? file = await PerfTracer.stop();
+      if (mounted) {
+        FlashElements.showSnackbar(
+          context: context,
+          title: const Text('Tracing stopped'),
+          content: Text(file?.uri.pathSegments.last ?? ''),
+          leadingIcon: Icons.stop_circle_outlined,
+          leadingIconColor: Colors.green,
+        );
+      }
+    }
+    await settingsHandler.saveSettings(restate: false);
+  }
+
+  Future<void> _setPerfTraceHud(bool enabled) async {
+    setState(() {
+      settingsHandler.perfTraceHud = enabled;
+    });
+    await settingsHandler.saveSettings(restate: false);
+  }
+
+  Future<void> _shareLatestTrace() async {
+    // Flush first, or the newest lines are still sitting in the buffer.
+    await PerfTracer.flush();
+    final List<File> traces = await PerfTracer.listTraces();
+    if (!mounted) {
+      return;
+    }
+    if (traces.isEmpty) {
+      FlashElements.showSnackbar(
+        context: context,
+        title: const Text('No traces found'),
+        content: const Text('Enable tracing and browse for a while first'),
+        leadingIcon: Icons.info_outline,
+      );
+      return;
+    }
+
+    final File file = traces.first;
+    final box = context.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, mimeType: 'application/json')],
+        subject: file.uri.pathSegments.last,
+        sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
   }
 
   @override
@@ -100,6 +168,23 @@ class _DebugPageState extends State<DebugPage> {
                   });
                 },
                 title: context.loc.settings.debug.showVideoStats,
+              ),
+              SettingsToggle(
+                value: settingsHandler.perfTraceToFile,
+                onChanged: _setPerfTraceToFile,
+                title: 'Performance trace to file',
+                subtitle: const Text('Documents/LoliSnatcher/traces'),
+              ),
+              SettingsToggle(
+                value: settingsHandler.perfTraceHud,
+                onChanged: _setPerfTraceHud,
+                title: 'Performance HUD',
+                subtitle: const Text('Turn off for the definitive run'),
+              ),
+              SettingsButton(
+                name: 'Share latest trace',
+                icon: const Icon(Icons.ios_share),
+                action: _shareLatestTrace,
               ),
               SettingsToggle(
                 value: settingsHandler.useImageLogging.value,
