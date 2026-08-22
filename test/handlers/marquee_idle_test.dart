@@ -87,6 +87,57 @@ void main() {
       await drainMarqueeTimers(tester);
     });
 
+    testWidgets('an ancestor TickerMode:false wins over local visibility', (
+      WidgetTester tester,
+    ) async {
+      // The viewer case. GalleryViewPage is pushed with `opaque: false`, so the
+      // waterfall route stays mounted underneath it and its marquees kept
+      // scrolling behind the viewer. The waterfall now gates that whole subtree
+      // on its RouteAware `isActive`, which only works because TickerMode ANDs
+      // with its ancestors.
+      final MarqueeVisibilityController controller = MarqueeVisibilityController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Scaffold(
+              body: Center(
+                child: TickerMode(
+                  enabled: false,
+                  child: MarqueeVisibility(
+                    notifier: controller,
+                    child: const SizedBox(
+                      width: 120,
+                      height: 40,
+                      child: MarqueeText(text: kLongText, isExpanded: false),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await pumpPastStartDelay(tester);
+
+      expect(
+        controller.visible,
+        isTrue,
+        reason: 'locally the marquee still believes it is visible',
+      );
+      expect(
+        tester.binding.transientCallbackCount,
+        0,
+        reason: 'the ancestor gate must win, or the viewer case stays broken',
+      );
+
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await drainMarqueeTimers(tester);
+    });
+
     testWidgets('becoming visible replays exactly one pass, then settles again', (
       WidgetTester tester,
     ) async {

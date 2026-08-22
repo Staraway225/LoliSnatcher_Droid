@@ -504,9 +504,22 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
                     ValueListenableBuilder(
                       valueListenable: isActive,
                       builder: (context, isActive, child) {
-                        return ShimmerWrap(
-                          enabled: isActive && !SettingsHandler.instance.shitDevice,
-                          child: child ?? const SizedBox.shrink(),
+                        // The viewer is pushed with `opaque: false`, so this whole
+                        // route stays mounted underneath it -- and its animations
+                        // kept running behind the viewer. `isActive` is the
+                        // RouteAware signal for "something is on top of me"
+                        // (didPushNext / didPopNext).
+                        //
+                        // TickerMode nests with AND semantics: an ancestor set to
+                        // false mutes the subtree regardless of any inner
+                        // TickerMode, so this covers the app bar's marquee and
+                        // anything else here in one place.
+                        return TickerMode(
+                          enabled: isActive,
+                          child: ShimmerWrap(
+                            enabled: isActive && !SettingsHandler.instance.shitDevice,
+                            child: child ?? const SizedBox.shrink(),
+                          ),
                         );
                       },
                       child: Obx(() {
