@@ -631,7 +631,7 @@ abstract class BooruHandler {
   }
 
   Future<void> afterParseResponse(List<BooruItem> newItems) async {
-    final Stopwatch perfWatch = Stopwatch()..start();
+    final Stopwatch? perfWatch = PerfTracer.startWatch();
     final int lengthBefore = fetched.length;
     fetched.addAll(newItems);
     appendedItemsCount += newItems.length;
@@ -639,10 +639,12 @@ abstract class BooruHandler {
     unawaited(setMultipleTrackedValues(lengthBefore, fetched.length));
     unawaited(populateTagHandler(newItems));
 
-    PerfTracer.recordPageFetch(
-      millis: perfWatch.elapsedMilliseconds,
-      items: newItems.length,
-    );
+    if (perfWatch != null) {
+      PerfTracer.recordPageFetch(
+        millis: perfWatch.elapsedMilliseconds,
+        items: newItems.length,
+      );
+    }
 
     // TODO
     // notifyAboutFailed();

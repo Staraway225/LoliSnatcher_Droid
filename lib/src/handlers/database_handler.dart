@@ -1155,12 +1155,14 @@ class DBHandler {
     }
 
     // DateTime startTime = DateTime.now();
-    final Stopwatch perfWatch = Stopwatch()..start();
+    final Stopwatch? perfWatch = PerfTracer.startWatch();
     final List? result = await db?.rawQuery(
       "SELECT fileURL, postURL, isFavourite, isSnatched FROM BooruItem WHERE ${queryParts.join(' OR ')};",
       queryArgs,
     );
-    PerfTracer.recordDbQuery(perfWatch.elapsedMilliseconds);
+    if (perfWatch != null) {
+      PerfTracer.recordDbQuery(perfWatch.elapsedMilliseconds);
+    }
     // print("Query took ${DateTime.now().difference(startTime).inMilliseconds}ms"); // performance test
 
     if (result != null) {

@@ -358,6 +358,14 @@ class PerfTracer {
         .catchError((Object _) {});
   }
 
+  /// A started [Stopwatch], but only while tracing.
+  ///
+  /// Hot paths (every image download, every decode) must not allocate a
+  /// Stopwatch and read the monotonic clock when tracing is off. Callers keep a
+  /// `Stopwatch?` and skip the whole measurement when it is null, so the cost of
+  /// being instrumented collapses to one static bool read.
+  static Stopwatch? startWatch() => _tracing ? (Stopwatch()..start()) : null;
+
   // ---- instrumentation hooks ------------------------------------------------
   // Each returns immediately when tracing is off.
 

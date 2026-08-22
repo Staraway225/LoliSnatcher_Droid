@@ -81,7 +81,7 @@ class NetworkImageLoader {
     required void Function(bool)? onCacheDetected,
     void Function(int, int?)? onReceiveProgress,
   }) async {
-    final Stopwatch perfWatch = Stopwatch()..start();
+    final Stopwatch? perfWatch = PerfTracer.startWatch();
     final Uri resolved = Uri.base.resolve(url);
     final String cacheFilePath = await ImageWriter().getCachePathString(
       resolved.toString(),
@@ -125,11 +125,13 @@ class NetworkImageLoader {
     if (cacheFile != null) {
       try {
         final Uint8List cached = await cacheFile.readAsBytes();
-        PerfTracer.recordDownload(
-          bytes: cached.length,
-          millis: perfWatch.elapsedMilliseconds,
-          fromCache: true,
-        );
+        if (perfWatch != null) {
+          PerfTracer.recordDownload(
+            bytes: cached.length,
+            millis: perfWatch.elapsedMilliseconds,
+            fromCache: true,
+          );
+        }
         return cached;
       } catch (e) {
         cacheFile = null;
@@ -257,11 +259,13 @@ class NetworkImageLoader {
         try {
           await _commitCacheFile(tempFile, cacheFilePath);
           final Uint8List committed = await File(cacheFilePath).readAsBytes();
-          PerfTracer.recordDownload(
-            bytes: committed.length,
-            millis: perfWatch.elapsedMilliseconds,
-            fromCache: false,
-          );
+          if (perfWatch != null) {
+            PerfTracer.recordDownload(
+              bytes: committed.length,
+              millis: perfWatch.elapsedMilliseconds,
+              fromCache: false,
+            );
+          }
           return committed;
         } catch (_) {
           try {
@@ -461,10 +465,12 @@ class CustomNetworkImage extends ImageProvider<custom_network_image.CustomNetwor
 
       final fixedBytes = await NetworkImageLoader.tryFixGifSpeed(key.url, bytes);
 
-      final Stopwatch decodeWatch = Stopwatch()..start();
+      final Stopwatch? decodeWatch = PerfTracer.startWatch();
       final ui.ImmutableBuffer buffer = await ui.ImmutableBuffer.fromUint8List(fixedBytes);
       final ui.Codec codec = await decode(buffer);
-      PerfTracer.recordDecode(decodeWatch.elapsedMilliseconds);
+      if (decodeWatch != null) {
+        PerfTracer.recordDecode(decodeWatch.elapsedMilliseconds);
+      }
       return codec;
     } catch (e) {
       if (onError != null) {
