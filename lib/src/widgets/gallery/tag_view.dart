@@ -1975,14 +1975,11 @@ class _TagContentPreviewState extends State<TagContentPreview> {
           initialIndex: index,
           canSelect: false,
           readOnly: widget.readOnly,
-          onPageChanged: (page) async {
-            viewedIndex.value = page;
-            await scrollController.scrollToIndex(
-              page,
-              duration: const Duration(milliseconds: 10),
-              preferPosition: AutoScrollPosition.begin,
-            );
-          },
+          // Only recorded. Scrolling per page change queues one scrollToIndex
+          // run per swipe on the same controller, and scroll_to_index
+          // serialises those without ever coalescing them, so a fast swipe
+          // leaves a backlog of runs aimed at stale indices. Move once, below.
+          onPageChanged: (page) => viewedIndex.value = page,
         ),
         opaque: false,
         transitionDuration: const Duration(milliseconds: 300),
@@ -2000,7 +1997,21 @@ class _TagContentPreviewState extends State<TagContentPreview> {
         },
       ),
     );
+
+    final int lastIndex = viewedIndex.value;
     viewedIndex.value = -1;
+
+    // Kept short so it reads as a reposition rather than a scroll: the target
+    // may not be built, and then scrollToIndex has to hunt for it.
+    if (lastIndex != -1 && lastIndex != index && mounted && scrollController.hasClients) {
+      unawaited(
+        scrollController.scrollToIndex(
+          lastIndex,
+          duration: const Duration(milliseconds: 10),
+          preferPosition: AutoScrollPosition.begin,
+        ),
+      );
+    }
   }
 
   Future<void> onPreviewDoubleTap(int index) async {

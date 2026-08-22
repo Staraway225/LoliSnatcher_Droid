@@ -8,6 +8,7 @@ import 'package:get/get.dart' hide ContextExt;
 import 'package:scroll_to_index/scroll_to_index.dart';
 
 import 'package:lolisnatcher/src/data/booru_item.dart';
+import 'package:lolisnatcher/src/handlers/grid_scroll_targeter.dart';
 import 'package:lolisnatcher/src/handlers/navigation_handler.dart';
 import 'package:lolisnatcher/src/handlers/scroll_cache_trimmer.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
@@ -61,6 +62,17 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
   /// where the grid does not span the window).
   final GlobalKey _gridSliverKey = GlobalKey();
   late final ScrollCacheTrimmer _trimmer;
+  late final GridScrollTargeter _targeter;
+
+  /// Index the viewer was left on, or null if it never moved off the tapped one.
+  ///
+  /// Nothing scrolls while the viewer is open. The route is pushed with
+  /// `opaque: false`, so this subtree stays mounted but ticker-muted (see the
+  /// TickerMode in [build]), and muting *suspends* a scroll animation rather
+  /// than cancelling it -- one gets queued per swipe and they all thaw at once
+  /// on the way out, which is what made the grid lurch. Record here, move once
+  /// in [scrollToViewedIndexAfterViewer].
+  int? pendingViewerIndex;
 
   @override
   void initState() {
@@ -71,6 +83,12 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
       isStaggered: () => isStaggered,
       // Read the live orientation, not `currentOrientation`, which is only
       // refreshed on certain rebuilds. Matches what the grid builders use.
+      columnCountOf: () => context.isPortrait ? settingsHandler.portraitColumns : settingsHandler.landscapeColumns,
+    );
+
+    _targeter = GridScrollTargeter(
+      gridSliverKey: _gridSliverKey,
+      isStaggered: () => isStaggered,
       columnCountOf: () => context.isPortrait ? settingsHandler.portraitColumns : settingsHandler.landscapeColumns,
     );
 
@@ -123,6 +141,7 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
   @override
   void didPopNext() {
     isActive.value = true;
+    scrollToViewedIndexAfterViewer();
   }
 
   void tabIdListener() {
@@ -222,21 +241,27 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
     super.dispose();
   }
 
-  void jumpTo(int newIndex) {
-    if (!searchHandler.gridScrollController.hasClients || newIndex == -1 || (isActive.value && isMobile)) {
+  /// Brings the grid to the item the viewer was closed on, in a single move.
+  ///
+  /// The destination is computed rather than searched for: `scrollToIndex` has
+  /// to hunt for an index whose tile was never built, and that hunt is several
+  /// animations in alternating directions.
+  void scrollToViewedIndexAfterViewer() {
+    final int? index = pendingViewerIndex;
+    pendingViewerIndex = null;
+    if (index == null || index < 0 || !isMobile) {
       return;
     }
 
+    // Post-frame so the TickerMode above has rebuilt with isActive == true
+    // before any animation ticker is created: createTicker takes its muted
+    // state from the inherited value at creation time.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (newIndex == 0) {
-        searchHandler.gridScrollController.jumpTo(0);
-      } else {
-        searchHandler.gridScrollController.scrollToIndex(
-          newIndex,
-          duration: Duration(milliseconds: isMobile ? 10 : 100),
-          preferPosition: AutoScrollPosition.begin,
-        );
+      if (!mounted || !searchHandler.gridScrollController.hasClients) {
+        return;
       }
+
+      _targeter.revealIndex(index);
     });
   }
 
@@ -316,10 +341,12 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
     if (currentFetched == null || index >= currentFetched.length) return;
     viewedItems.add(currentFetched[index]);
     if (isMobile) {
-      jumpTo(index);
+      // Only recorded: see [pendingViewerIndex]. The grid moves once, when the
+      // viewer route pops.
+      pendingViewerIndex = index;
     } else {
       // don't auto scroll on viewed index change on desktop
-      // call jumpTo only when viewed item is possibly out of view (i.e. selected by arrow keys)
+      // the desktop viewer is inline, so there is no route pop to scroll on
     }
   }
 
@@ -462,11 +489,12 @@ class _WaterfallViewState extends State<WaterfallView> with RouteAware {
           (item) => item.key == viewerHandler.current.value?.key,
         );
         if (itemIndex != -1) {
-          searchHandler.gridScrollController.scrollToIndex(
-            itemIndex,
-            duration: Duration(milliseconds: isMobile ? 10 : 100),
-            preferPosition: AutoScrollPosition.begin,
-          );
+          // Jump rather than animate: this runs behind the viewer, where the
+          // subtree is ticker-muted and an animation would only thaw on exit.
+          final double? target = _targeter.estimatedOffsetForIndex(itemIndex);
+          if (target != null && searchHandler.gridScrollController.hasClients) {
+            searchHandler.gridScrollController.jumpTo(target);
+          }
         }
       });
     }
