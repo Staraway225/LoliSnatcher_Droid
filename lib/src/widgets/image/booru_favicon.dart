@@ -35,6 +35,15 @@ class BooruFavicon extends StatefulWidget {
 
 class _BooruFaviconState extends State<BooruFavicon> {
   bool isIcon = false, isFailed = false, isLoaded = false, manualReloadTapped = false;
+
+  /// Stops the shimmer if the favicon neither resolves nor errors.
+  ///
+  /// This widget sits in always-visible chrome (TabRow, TabSelector), and
+  /// ShimmerCard(isLoading: !isLoaded && !isFailed) keeps the shared shimmer
+  /// controller repeating -- which schedules a frame every vsync and stops the
+  /// app ever reaching idle.
+  Timer? loadWatchdog;
+  static const Duration _loadWatchdogTimeout = Duration(seconds: 30);
   CancelToken? cancelToken;
   ImageProvider? mainProvider;
   ImageStream? imageStream;
@@ -151,6 +160,15 @@ class _BooruFaviconState extends State<BooruFavicon> {
       isLoaded = true;
       updateState();
     } else {
+      loadWatchdog?.cancel();
+      loadWatchdog = Timer(_loadWatchdogTimeout, () {
+        if (!mounted || isLoaded || isFailed) {
+          return;
+        }
+        isFailed = true;
+        updateState();
+      });
+
       mainProvider ??= await getImageProvider();
 
       imageStream?.removeListener(imageListener);
@@ -158,12 +176,16 @@ class _BooruFaviconState extends State<BooruFavicon> {
       imageStream = mainProvider!.resolve(ImageConfiguration.empty);
       imageListener = ImageStreamListener(
         (imageInfo, syncCall) {
+          loadWatchdog?.cancel();
+          loadWatchdog = null;
           isLoaded = true;
           if (!syncCall) {
             updateState();
           }
         },
         onError: (e, s) {
+          loadWatchdog?.cancel();
+          loadWatchdog = null;
           Logger.Inst().log(
             'Failed to load favicon: ${widget.booru?.faviconURL ?? widget.customFaviconUrl}',
             'Favicon',
@@ -187,6 +209,8 @@ class _BooruFaviconState extends State<BooruFavicon> {
   }
 
   void disposables() {
+    loadWatchdog?.cancel();
+    loadWatchdog = null;
     imageStream?.removeListener(imageListener);
     imageStream = null;
     imageListener = ImageStreamListener((imageInfo, syncCall) {});

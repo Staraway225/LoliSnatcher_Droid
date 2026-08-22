@@ -39,7 +39,14 @@ class _WaterfallErrorButtonsState extends State<WaterfallErrorButtons> {
   void initState() {
     super.initState();
 
-    startTimer();
+    // Only start if we are actually loading. This used to run unconditionally,
+    // and stopTimer() is only reached from a *falling edge* of isLoading -- so
+    // when this widget mounted after loading had already finished (tab restore,
+    // cached results) no edge ever arrived and the 1Hz setState ran forever,
+    // preventing the app from ever reaching idle.
+    if (searchHandler.isLoading.value) {
+      startTimer();
+    }
     searchHandler.isLoading.addListener(loadingListener);
   }
 

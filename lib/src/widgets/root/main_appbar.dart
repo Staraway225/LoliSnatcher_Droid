@@ -15,6 +15,7 @@ import 'package:lolisnatcher/src/handlers/viewer_handler.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
 import 'package:lolisnatcher/src/widgets/common/inner_drawer.dart';
 import 'package:lolisnatcher/src/widgets/root/active_title.dart';
+import 'package:lolisnatcher/src/widgets/common/marquee_visibility.dart';
 import 'package:lolisnatcher/src/widgets/root/custom_sliver_app_bar.dart';
 
 class MainAppBar extends StatefulWidget implements PreferredSizeWidget {
@@ -32,10 +33,24 @@ class MainAppBar extends StatefulWidget implements PreferredSizeWidget {
 }
 
 class _MainAppBarState extends State<MainAppBar> {
+  /// Mutes the title's marquees while the header is scrolled off, and replays a
+  /// single pass each time it comes back.
+  ///
+  /// This header is `floating`/`snap` and not `pinned`, so its subtree stays
+  /// mounted at zero paint extent when scrolled away -- the marquee kept running
+  /// invisibly and kept the whole app at 120Hz.
+  final MarqueeVisibilityController _marqueeVisibility = MarqueeVisibilityController();
+
   final SettingsHandler settingsHandler = SettingsHandler.instance;
   final SearchHandler searchHandler = SearchHandler.instance;
   final SnatchHandler snatchHandler = SnatchHandler.instance;
   final ViewerHandler viewerHandler = ViewerHandler.instance;
+
+  @override
+  void dispose() {
+    _marqueeVisibility.dispose();
+    super.dispose();
+  }
 
   void _toggleDrawer(InnerDrawerDirection? dir) {
     final state = searchHandler.mainDrawerKey.currentState;
@@ -182,6 +197,10 @@ class _MainAppBarState extends State<MainAppBar> {
         automaticallyImplyLeading: false,
         headerKey: NavigationHandler.instance.floatingHeaderKey,
         onHeaderVisiblityChanged: (visible) {
+          // Fires on every shrink-offset change while scrolling, not just on
+          // transitions -- the controller guards against repeats itself.
+          _marqueeVisibility.setVisible(visible);
+
           if (visible) {
             NavigationHandler.instance.bottomBarKey.currentState?.show();
           } else {
@@ -191,7 +210,10 @@ class _MainAppBarState extends State<MainAppBar> {
         leading: settingsHandler.handSide.value.isLeft
             ? menuButton(InnerDrawerDirection.start)
             : snatcherButton(InnerDrawerDirection.start),
-        title: const ActiveTitle(),
+        title: MarqueeVisibility(
+          notifier: _marqueeVisibility,
+          child: const ActiveTitle(),
+        ),
         toolbarHeight: MainAppBar.height,
         flexibleSpace: settingsHandler.shitDevice
             ? null

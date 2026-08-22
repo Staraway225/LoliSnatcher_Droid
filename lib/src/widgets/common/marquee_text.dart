@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:auto_size_text_plus/auto_size_text_plus.dart';
 import 'package:fast_marquee/fast_marquee.dart';
 
+import 'package:lolisnatcher/src/widgets/common/marquee_visibility.dart';
+
 // Based on code from: https://github.com/nt4f04uNd/nt4f04unds_widgets/blob/f14e448d23d347f17c05549972e638d61cf300b4/lib/src/widgets/marquee.dart
 
 class MarqueeText extends StatelessWidget {
@@ -57,7 +59,21 @@ class MarqueeText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = RepaintBoundary(child: innerBox(context));
+    final ({bool visible, int generation}) visibility = MarqueeVisibility.of(context);
+
+    // TickerMode mutes the marquee's AnimationController when this widget is not
+    // actually on screen. That genuinely stops frame scheduling rather than just
+    // freezing the pixels: Ticker.shouldScheduleTick is `!muted && isActive &&
+    // !scheduled`, and only scheduleTick() calls SchedulerBinding.scheduleFrame().
+    //
+    // Without it the app bar's marquees keep running while the header is scrolled
+    // off (a floating sliver header keeps its subtree mounted), and the drawer's
+    // keep running while the drawer is closed (InnerDrawer builds both children
+    // into an IndexedStack) -- which pinned the whole app at 120Hz permanently.
+    final child = TickerMode(
+      enabled: visibility.visible,
+      child: RepaintBoundary(child: innerBox(context, visibility.generation)),
+    );
 
     if (isExpanded) {
       return Expanded(child: child);
@@ -66,7 +82,7 @@ class MarqueeText extends StatelessWidget {
     return child;
   }
 
-  Widget innerBox(BuildContext context) {
+  Widget innerBox(BuildContext context, int generation) {
     final defaultStyle = DefaultTextStyle.of(context).style;
     final usedStyle = (style ?? defaultStyle).copyWith(
       height: 1,
@@ -90,7 +106,16 @@ class MarqueeText extends StatelessWidget {
           stepGranularity: stepGranularity,
           style: usedStyle,
           overflowReplacement: Marquee.rich(
+            // Keyed on the text and the visibility generation. fast_marquee sets
+            // its `_roundsComplete` flag once and never resets it, so only a
+            // fresh State can scroll again -- this is what replays a single pass
+            // when the header comes back into view or the tab changes.
+            key: ValueKey<(String, int)>((textSpan!.toPlainText(), generation)),
             textSpan: textSpan,
+            // One pass, then rest. A completed animation ends at horizontal
+            // offset 0, i.e. the natural start of the string, so stopping looks
+            // deliberate rather than frozen mid-scroll.
+            numberOfRounds: 1,
             blankSpace: blankSpace,
             curve: curve,
             velocity: velocity,
@@ -116,7 +141,9 @@ class MarqueeText extends StatelessWidget {
         stepGranularity: stepGranularity,
         style: usedStyle,
         overflowReplacement: Marquee(
+          key: ValueKey<(String, int)>((text!, generation)),
           text: text,
+          numberOfRounds: 1,
           blankSpace: blankSpace,
           curve: curve,
           velocity: velocity,

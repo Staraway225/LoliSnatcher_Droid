@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
 import 'package:lolisnatcher/src/handlers/settings_handler.dart';
 import 'package:lolisnatcher/src/utils/extensions.dart';
+import 'package:lolisnatcher/src/widgets/common/marquee_visibility.dart';
 import 'package:lolisnatcher/src/widgets/common/inner_drawer.dart';
 import 'package:lolisnatcher/src/widgets/drawers/downloads/downloads_drawer.dart';
 import 'package:lolisnatcher/src/widgets/drawers/main_drawer.dart';
@@ -27,6 +28,21 @@ class _MobileHomeState extends State<MobileHome> {
   final GlobalKey<ScaffoldState> mainScaffoldKey = GlobalKey<ScaffoldState>();
 
   bool isDrawerOpened = false;
+
+  /// Mutes the drawer's marquees while it is closed.
+  ///
+  /// InnerDrawer puts both children in an IndexedStack, which builds every child,
+  /// so a closed drawer's TabSelector marquees ran permanently and completely
+  /// unseen -- two of the four instances that kept the app at 120Hz.
+  final MarqueeVisibilityController _drawerMarqueeVisibility = MarqueeVisibilityController(
+    visible: false,
+  );
+
+  @override
+  void dispose() {
+    _drawerMarqueeVisibility.dispose();
+    super.dispose();
+  }
 
   void _toggleDrawer(InnerDrawerDirection? dir) {
     if (settingsHandler.booruList.isEmpty) {
@@ -113,21 +129,28 @@ class _MobileHomeState extends State<MobileHome> {
 
             innerDrawerCallback: (bool isOpen, InnerDrawerDirection? direction) {
               isDrawerOpened = isOpen;
+              _drawerMarqueeVisibility.setVisible(isOpen);
             }, // return  true (open) or false (close)
 
             leftChild: RepaintBoundary(
-              child: sidebarsEnabled
-                  ? settingsHandler.handSide.value.isLeft
-                        ? const MainDrawer()
-                        : DownloadsDrawer(toggleDrawer: () => _toggleDrawer(null))
-                  : const SizedBox.shrink(),
+              child: MarqueeVisibility(
+                notifier: _drawerMarqueeVisibility,
+                child: sidebarsEnabled
+                    ? settingsHandler.handSide.value.isLeft
+                          ? const MainDrawer()
+                          : DownloadsDrawer(toggleDrawer: () => _toggleDrawer(null))
+                    : const SizedBox.shrink(),
+              ),
             ),
             rightChild: RepaintBoundary(
-              child: sidebarsEnabled
-                  ? settingsHandler.handSide.value.isRight
-                        ? const MainDrawer()
-                        : DownloadsDrawer(toggleDrawer: () => _toggleDrawer(null))
-                  : const SizedBox.shrink(),
+              child: MarqueeVisibility(
+                notifier: _drawerMarqueeVisibility,
+                child: sidebarsEnabled
+                    ? settingsHandler.handSide.value.isRight
+                          ? const MainDrawer()
+                          : DownloadsDrawer(toggleDrawer: () => _toggleDrawer(null))
+                    : const SizedBox.shrink(),
+              ),
             ),
 
             // Note: use "automaticallyImplyLeading: false" if you do not personalize "leading" of Bar
