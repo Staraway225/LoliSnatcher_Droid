@@ -968,29 +968,24 @@ class _MainSearchQueryEditorPageState extends State<MainSearchQueryEditorPage> {
         ),
       ),
       // Search bar
-      SizedBox(
-        height: MainSearchBar.height,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Hero(
-            tag: 'mainSearchBar-${widget.subTag}',
-            child: ScrollConfiguration(
-              behavior: ScrollConfiguration.of(context).copyWith(
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-              ),
-              child: MainSearchBar(
-                onChipTap: onChipTap,
-                onChipLongTap: onChipLongTap,
-                onChipDeleteTap: onChipDeleteTap,
-                onResetTap: onResetTap,
-                onClearTap: onClearTap,
-                onSearchTap: onSearchTap,
-                onSearchLongTap: onSearchLongTap,
-                scrollController: searchBarScrollController,
-                selectedTagIndex: tagToEditIndex,
-              ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Hero(
+          tag: 'mainSearchBar-${widget.subTag}',
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              physics: const BouncingScrollPhysics(),
+            ),
+            child: MainSearchBar(
+              onChipTap: onChipTap,
+              onChipLongTap: onChipLongTap,
+              onChipDeleteTap: onChipDeleteTap,
+              onResetTap: onResetTap,
+              onClearTap: onClearTap,
+              onSearchTap: onSearchTap,
+              onSearchLongTap: onSearchLongTap,
+              scrollController: searchBarScrollController,
+              selectedTagIndex: tagToEditIndex,
             ),
           ),
         ),

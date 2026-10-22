@@ -98,7 +98,6 @@ class WaterfallBottomBarState extends State<WaterfallBottomBar> with TickerProvi
                 Padding(
                   padding: EdgeInsets.only(bottom: 12 + bottomPadding),
                   child: Container(
-                    height: MainSearchBar.height,
                     width: double.infinity,
                     margin: const EdgeInsets.symmetric(horizontal: 12),
                     child: const MainSearchBarWithActions('bottom'),

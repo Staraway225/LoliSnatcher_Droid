@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'package:fading_edge_scrollview/fading_edge_scrollview.dart';
 import 'package:get/get.dart' hide ContextExt, FirstWhereOrNullExt;
-import 'package:lolisnatcher/src/widgets/desktop/desktop_scroll.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 
 import 'package:lolisnatcher/src/handlers/search_handler.dart';
@@ -92,9 +91,7 @@ class MainSearchBarWithActions extends StatelessWidget {
       tag: 'mainSearchBar-$subTag',
       child: ScrollConfiguration(
         behavior: ScrollConfiguration.of(context).copyWith(
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
-          ),
+          physics: const BouncingScrollPhysics(),
         ),
         child: MainSearchBar(
           onChipTap: (tag, index) => onChipTap(context, tag, index),
@@ -142,7 +139,19 @@ class MainSearchBar extends StatefulWidget {
   final int? selectedTagIndex;
   final String? subTag;
 
-  static double get height => 44;
+  static const double _borderWidth = 1;
+  static const double _verticalPadding = 6;
+  static const double _chipHeight = 30;
+  static const double _runSpacing = 6;
+
+  /// The bar grows by one chip row at a time up to this many rows, then scrolls.
+  static const int maxLines = 4;
+
+  /// Height of a one-line bar, which is also its minimum.
+  static double get height => 2 * _borderWidth + 2 * _verticalPadding + _chipHeight;
+
+  static double get maxHeight =>
+      2 * _borderWidth + 2 * _verticalPadding + maxLines * _chipHeight + (maxLines - 1) * _runSpacing;
 
   @override
   State<MainSearchBar> createState() => _MainSearchBarState();
@@ -247,171 +256,180 @@ class _MainSearchBarState extends State<MainSearchBar> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: _maybeBlur(
-        enabled: !settingsHandler.shitDevice,
-        sigma: 6,
-        child: Material(
-          color: context.theme.colorScheme.surface.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: widget.onSearchBackgroundTap,
-            child: Container(
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: context.theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  width: 1,
+  Widget _buildChip(int i) {
+    final bool isSelected = widget.selectedTag == tags[i] || widget.selectedTagIndex == i;
+
+    return AutoScrollTag(
+      key: Key('${tags[i]}-$i-${searchHandler.currentTabId}'),
+      controller: scrollController,
+      index: i,
+      // A Wrap lays its children out with unbounded height, and the chip
+      // stretches its contents vertically, so it needs an explicit height.
+      child: SizedBox(
+        height: MainSearchBar._chipHeight,
+        child: Stack(
+          children: [
+            MainSearchTagChip(
+              tag: tags[i],
+              tab: searchHandler.currentTabOrNull,
+              onTap: () => widget.onChipTap(tags[i], i),
+              onLongTap: widget.onChipLongTap == null ? null : () => widget.onChipLongTap!(tags[i], i),
+              onDeleteTap: widget.onChipDeleteTap == null ? null : () => widget.onChipDeleteTap!(tags[i], i),
+              canDelete: widget.selectedTagIndex != i,
+              isSelected: isSelected,
+            ),
+            if (isSelected)
+              Positioned.fill(
+                child: TransparentPointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: context.theme.colorScheme.secondary,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: Listener(
-                        onPointerSignal: (event) => desktopPointerScroll(scrollController, event),
-                        child: FadingEdgeScrollView.fromScrollView(
-                          child: ListView(
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildButton({
+    required Key key,
+    required IconData icon,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+  }) {
+    // One row tall, so the buttons sit on the last line as the bar grows.
+    return SizedBox(
+      key: key,
+      height: MainSearchBar.height - 2 * MainSearchBar._borderWidth,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Icon(icon, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: MainSearchBar.maxHeight),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: _maybeBlur(
+          enabled: !settingsHandler.shitDevice,
+          sigma: 6,
+          child: Material(
+            color: context.theme.colorScheme.surface.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: widget.onSearchBackgroundTap,
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: context.theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    width: MainSearchBar._borderWidth,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: FadingEdgeScrollView.fromSingleChildScrollView(
+                          child: SingleChildScrollView(
                             controller: scrollController,
-                            scrollDirection: Axis.horizontal,
                             // scrollconfig allows to control physics outside of the widget
                             physics: tags.isEmpty
                                 ? const NeverScrollableScrollPhysics()
                                 : ScrollConfiguration.of(context).getScrollPhysics(context),
-                            padding: const EdgeInsets.fromLTRB(8, 6, 60, 6),
-                            children: [
-                              if (tags.isEmpty)
-                                Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                                    child: Text(
-                                      context.loc.search,
-                                      style: context.theme.textTheme.bodyLarge?.copyWith(
-                                        color: context.theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                                        fontSize: 16,
-                                        height: 1,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: MainSearchBar._verticalPadding,
+                            ),
+                            child: tags.isEmpty
+                                ? SizedBox(
+                                    height: MainSearchBar._chipHeight,
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                                        child: Text(
+                                          context.loc.search,
+                                          style: context.theme.textTheme.bodyLarge?.copyWith(
+                                            color: context.theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                                            fontSize: 16,
+                                            height: 1,
+                                          ),
+                                        ),
                                       ),
                                     ),
+                                  )
+                                : Wrap(
+                                    spacing: 8,
+                                    runSpacing: MainSearchBar._runSpacing,
+                                    children: [
+                                      for (int i = 0; i < tags.length; i++) _buildChip(i),
+                                    ],
                                   ),
-                                ),
-                              //
-                              for (int i = 0; i < tags.length; i++)
-                                AutoScrollTag(
-                                  key: Key('${tags[i]}-$i-${searchHandler.currentTabId}'),
-                                  controller: scrollController,
-                                  index: i,
-                                  child: Padding(
-                                    padding: (i < tags.length - 1) ? const EdgeInsets.only(right: 8) : EdgeInsets.zero,
-                                    child: Stack(
-                                      children: [
-                                        MainSearchTagChip(
-                                          tag: tags[i],
-                                          tab: searchHandler.currentTabOrNull,
-                                          onTap: () => widget.onChipTap(tags[i], i),
-                                          onLongTap: widget.onChipLongTap == null
-                                              ? null
-                                              : () => widget.onChipLongTap!(tags[i], i),
-                                          onDeleteTap: widget.onChipDeleteTap == null
-                                              ? null
-                                              : () => widget.onChipDeleteTap!(tags[i], i),
-                                          canDelete: widget.selectedTagIndex != i,
-                                          isSelected: widget.selectedTag == tags[i] || widget.selectedTagIndex == i,
-                                        ),
-                                        if (widget.selectedTag == tags[i] || widget.selectedTagIndex == i)
-                                          Positioned.fill(
-                                            child: TransparentPointer(
-                                              child: DecoratedBox(
-                                                decoration: BoxDecoration(
-                                                  color: Colors.transparent,
-                                                  borderRadius: BorderRadius.circular(12),
-                                                  border: Border.all(
-                                                    color: context.theme.colorScheme.secondary,
-                                                    width: 2,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            ],
                           ),
                         ),
                       ),
-                    ),
-                    //
-                    if (searchHandler.searchTextController.text.isNotEmpty)
+                      //
+                      if (searchHandler.searchTextController.text.isNotEmpty)
+                        Obx(
+                          () {
+                            if (searchHandler.currentTabOrNull?.tags.trim() == tags.join(' ')) {
+                              return _buildButton(
+                                key: const Key('clear-button'),
+                                icon: Icons.close_rounded,
+                                onTap: _onClearTap,
+                              );
+                            }
+
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                      //
                       Obx(
                         () {
-                          if (searchHandler.currentTabOrNull?.tags.trim() == tags.join(' ')) {
-                            return Material(
-                              key: const Key('clear-button'),
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: _onClearTap,
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 10),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 24,
-                                  ),
-                                ),
-                              ),
+                          if (searchHandler.currentTabOrNull?.tags.trim() != tags.join(' ')) {
+                            return _buildButton(
+                              key: const Key('reset-button'),
+                              icon: Icons.refresh,
+                              onTap: widget.onResetTap,
                             );
                           }
 
                           return const SizedBox.shrink();
                         },
                       ),
-                    //
-                    Obx(
-                      () {
-                        if (searchHandler.currentTabOrNull?.tags.trim() != tags.join(' ')) {
-                          return Material(
-                            key: const Key('reset-button'),
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: widget.onResetTap,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 10),
-                                child: Icon(
-                                  Icons.refresh,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return const SizedBox.shrink();
-                      },
-                    ),
-                    //
-                    Material(
-                      key: const Key('search-button'),
-                      color: Colors.transparent,
-                      child: InkWell(
+                      //
+                      _buildButton(
+                        key: const Key('search-button'),
+                        icon: Icons.search_rounded,
                         onTap: widget.onSearchTap,
                         onLongPress: widget.onSearchLongTap,
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 10),
-                          child: Icon(
-                            Icons.search_rounded,
-                            size: 24,
-                          ),
-                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

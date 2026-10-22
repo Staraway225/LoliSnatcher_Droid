@@ -79,7 +79,6 @@ class MainDrawer extends StatelessWidget {
               child: Obx(() {
                 if (settingsHandler.booruList.isNotEmpty && searchHandler.tabs.isNotEmpty) {
                   return Container(
-                    height: MainSearchBar.height,
                     margin: const EdgeInsets.fromLTRB(2, 24, 2, 12),
                     child: const MainSearchBarWithActions('drawer'),
                   );
