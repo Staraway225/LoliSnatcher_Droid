@@ -156,7 +156,6 @@ class _MainSearchBarState extends State<MainSearchBar> {
 
   List<String> tags = [];
   String _lastTagsSignature = '';
-  String? currentTabId = '';
 
   final TagHandler tagHandler = TagHandler.instance;
 
@@ -167,8 +166,11 @@ class _MainSearchBarState extends State<MainSearchBar> {
     scrollController = widget.scrollController ?? AutoScrollController();
 
     parseTags();
-    currentTabId = searchHandler.currentTabId;
     searchHandler.searchTextController.addListener(onTextChanged);
+    // Tab switches are detected through the index rather than tabId: a search
+    // replaces the current tab with a new id only once its first page lands,
+    // which is long after the text changed and would read as a switch.
+    searchHandler.index.addListener(onTabIndexChanged);
 
     // Chips need to re-render when a tag's type data arrives, which happens
     // asynchronously. This used to be a 3s Timer.periodic firing an
@@ -179,14 +181,14 @@ class _MainSearchBarState extends State<MainSearchBar> {
 
   void onTextChanged() {
     parseTags();
-
-    final String? prevTabId = currentTabId;
-    if (prevTabId != searchHandler.currentTabId) {
-      scrollToStart();
-      currentTabId = searchHandler.currentTabId;
-    }
-
     setState(() {});
+  }
+
+  void onTabIndexChanged() {
+    scrollToStart();
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   /// Rebuild only when a tag type that is actually on screen has changed.
@@ -241,6 +243,7 @@ class _MainSearchBarState extends State<MainSearchBar> {
   void dispose() {
     tagHandler.tagsRevision.removeListener(onTagsRevisionChanged);
     searchHandler.searchTextController.removeListener(onTextChanged);
+    searchHandler.index.removeListener(onTabIndexChanged);
     super.dispose();
   }
 
@@ -301,7 +304,7 @@ class _MainSearchBarState extends State<MainSearchBar> {
                               //
                               for (int i = 0; i < tags.length; i++)
                                 AutoScrollTag(
-                                  key: Key('${tags[i]}-$i-$currentTabId'),
+                                  key: Key('${tags[i]}-$i-${searchHandler.currentTabId}'),
                                   controller: scrollController,
                                   index: i,
                                   child: Padding(
