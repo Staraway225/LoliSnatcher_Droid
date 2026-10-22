@@ -52,10 +52,10 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          # Pinned to match .fvmrc and the exact `flutter: 3.44.6` constraint in
+          # Pinned to match .fvmrc and the exact `flutter: 3.47.3` constraint in
           # pubspec.yaml. Do not use `channel:` here - a floating channel drifts
           # off the pin and breaks `pub get`.
-          flutter-version: '3.44.6'
+          flutter-version: '3.47.3'
           channel: 'stable'
           cache: true
 
